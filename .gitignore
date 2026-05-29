@@ -1,0 +1,27 @@
+# --- shared ---
+.env
+.env.local
+!.env.example
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sw?
+
+# --- Go backend ---
+road-guide-backend/*.exe
+road-guide-backend/uploads/
+road-guide-backend/*.db
+
+# --- Admin (Node) ---
+road-guide-admin/node_modules/
+road-guide-admin/dist/
+
+# --- Kotlin / Android ---
+road-guide-kotlin/.gradle/
+road-guide-kotlin/build/
+road-guide-kotlin/app/build/
+road-guide-kotlin/local.properties
+road-guide-kotlin/.cxx/
+road-guide-kotlin/app/src/main/assets/map/
+road-guide-kotlin/GreaterLondon.pmtiles

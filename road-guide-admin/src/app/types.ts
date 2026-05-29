@@ -1,0 +1,37 @@
+export type Role = 'visitor' | 'business' | 'admin'
+
+export type AuthUser = {
+  id: string
+  email: string
+  name: string
+  role: Role
+}
+
+export type BusinessPoi = {
+  id: string
+  name: string
+  address: string
+}
+
+export type RegistrationRequest = {
+  id: string
+  userId: string
+  poiId: string
+  status: string
+  message: string
+  adminNote: string
+  user: { email: string; name: string }
+  poi: { name: string }
+}
+
+export type AdminUser = AuthUser & {
+  assignedPoiIds: string[]
+}
+
+export type AdminSection = 'dashboard' | 'requests' | 'users'
+
+export type DashboardData = {
+  requests: RegistrationRequest[]
+  users: AdminUser[]
+  pois: BusinessPoi[]
+}

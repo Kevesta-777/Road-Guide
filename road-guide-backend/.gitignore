@@ -1,0 +1,27 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+ROAD-GUIDE-BACKEND
+
+# Go test / coverage
+*.test
+*.out
+
+# Local env and runtime data
+.env
+uploads/
+*.db
+
+# Go workspace (optional local tooling)
+go.work
+go.work.sum
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sw?
