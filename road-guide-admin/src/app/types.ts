@@ -2,7 +2,7 @@ export type Role = 'visitor' | 'business' | 'admin'
 
 export type AuthUser = {
   id: string
-  email: string
+  identifier: string
   name: string
   role: Role
 }
@@ -20,7 +20,7 @@ export type RegistrationRequest = {
   status: string
   message: string
   adminNote: string
-  user: { email: string; name: string }
+  user: { identifier: string; name: string }
   poi: { name: string }
 }
 

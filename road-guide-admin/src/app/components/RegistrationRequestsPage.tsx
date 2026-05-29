@@ -28,7 +28,7 @@ export function RegistrationRequestsPage({
       return (
         request.poi.name.toLowerCase().includes(query) ||
         request.user.name.toLowerCase().includes(query) ||
-        request.user.email.toLowerCase().includes(query) ||
+        request.user.identifier.toLowerCase().includes(query) ||
         request.message.toLowerCase().includes(query)
       )
     })
@@ -92,7 +92,7 @@ export function RegistrationRequestsPage({
                     </td>
                     <td className="py-4 px-4">
                       <div className="font-medium">{request.user.name}</div>
-                      <div className="text-sm text-muted-foreground">{request.user.email}</div>
+                      <div className="text-sm text-muted-foreground">{request.user.identifier}</div>
                     </td>
                     <td className="py-4 px-4 text-sm text-muted-foreground max-w-xs">
                       {request.message || '—'}

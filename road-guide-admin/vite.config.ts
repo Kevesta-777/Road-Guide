@@ -14,6 +14,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8090',
       '/uploads': 'http://localhost:8090',
+      '/healthz': 'http://localhost:8090',
     },
   },
 })

@@ -21,7 +21,6 @@ object OfflineAuthStore {
     private const val SESSION_FILE = "session.json"
     private const val KEY_PROFILE_ID = "profileId"
     private const val KEY_TOKEN = "token"
-    private const val KEY_EMAIL = "email"
     private const val KEY_NAME = "name"
     private const val KEY_ROLE = "role"
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -62,7 +61,7 @@ object OfflineAuthStore {
 
         val normalizedId = identifier.trim()
         val payload = JSONObject()
-            .put("email", toBackendEmail(normalizedId))
+            .put("identifier", normalizedId)
             .put("password", password)
         val response = postJson("/auth/login", payload)
         if (!response.ok) {
@@ -75,15 +74,15 @@ object OfflineAuthStore {
         val user = body.optJSONObject("user") ?: return AuthResult.Failure(AuthError.NetworkError)
         val token = body.optString(KEY_TOKEN).trim()
         if (token.isEmpty()) return AuthResult.Failure(AuthError.NetworkError)
+        val resolvedId = user.optString("identifier").trim().ifBlank { normalizedId }
         writeCredentials(
             context = context,
-            identifier = normalizedId,
+            identifier = resolvedId,
             profileId = user.optString("id").ifBlank { UUID.randomUUID().toString() },
-            email = user.optString("email"),
             name = user.optString("name"),
             role = user.optString("role").ifBlank { "visitor" },
         )
-        writeSession(context, normalizedId, token, user.optString("role").ifBlank { "visitor" })
+        writeSession(context, resolvedId, token, user.optString("role").ifBlank { "visitor" })
         return AuthResult.Success
     }
 
@@ -95,7 +94,7 @@ object OfflineAuthStore {
 
         val normalizedId = identifier.trim()
         val payload = JSONObject()
-            .put("email", toBackendEmail(normalizedId))
+            .put("identifier", normalizedId)
             .put("name", normalizedId)
             .put("password", password)
         val registerResponse = postJson("/auth/register", payload)
@@ -109,15 +108,15 @@ object OfflineAuthStore {
         val user = body.optJSONObject("user") ?: return AuthResult.Failure(AuthError.NetworkError)
         val token = body.optString(KEY_TOKEN).trim()
         if (token.isEmpty()) return AuthResult.Failure(AuthError.NetworkError)
+        val resolvedId = user.optString("identifier").trim().ifBlank { normalizedId }
         writeCredentials(
             context = context,
-            identifier = normalizedId,
+            identifier = resolvedId,
             profileId = user.optString("id").ifBlank { UUID.randomUUID().toString() },
-            email = user.optString("email"),
             name = user.optString("name"),
             role = user.optString("role").ifBlank { "visitor" },
         )
-        writeSession(context, normalizedId, token, user.optString("role").ifBlank { "visitor" })
+        writeSession(context, resolvedId, token, user.optString("role").ifBlank { "visitor" })
         return AuthResult.Success
     }
 
@@ -151,12 +150,19 @@ object OfflineAuthStore {
                 val body = if (bodyText.isNotBlank()) JSONObject(bodyText) else return@use false
                 val user = body.optJSONObject("user") ?: return@use false
                 val role = user.optString("role").ifBlank { "visitor" }
+                val identifier = user.optString("identifier").trim()
                 val session = readSession(context) ?: return@use false
                 session.put(KEY_ROLE, role)
+                if (identifier.isNotEmpty()) {
+                    session.put("identifier", identifier)
+                }
                 writeAtomically(sessionFile(context), session.toString())
                 readCredentials(context)?.let { credentials ->
                     credentials.put(KEY_ROLE, role)
                     credentials.put(KEY_NAME, user.optString("name"))
+                    if (identifier.isNotEmpty()) {
+                        credentials.put("identifier", identifier)
+                    }
                     writeAtomically(credentialsFile(context), credentials.toString())
                 }
                 true
@@ -200,14 +206,12 @@ object OfflineAuthStore {
         context: Context,
         identifier: String,
         profileId: String,
-        email: String,
         name: String,
         role: String,
     ) {
         val payload = JSONObject()
             .put("identifier", identifier.trim())
             .put(KEY_PROFILE_ID, profileId)
-            .put(KEY_EMAIL, email)
             .put(KEY_NAME, name)
             .put(KEY_ROLE, role)
         writeAtomically(credentialsFile(context), payload.toString())
@@ -241,11 +245,6 @@ object OfflineAuthStore {
 
     private fun sessionFile(context: Context): File =
         authRoot(context).resolve(SESSION_FILE)
-
-    private fun toBackendEmail(identifier: String): String {
-        val trimmed = identifier.trim()
-        return if (trimmed.contains("@")) trimmed.lowercase() else "${trimmed.lowercase()}@roadguide.local"
-    }
 
     private fun postJson(path: String, payload: JSONObject): HttpResult {
         val base = BuildConfig.MAIN_BACKEND_BASE_URL.trim().trimEnd('/')

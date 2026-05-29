@@ -22,12 +22,12 @@ Default PostgreSQL connection:
 
 ## Seeded Admin Account
 
-- Email: `admin@roadguide.local`
+- Identifier: `admin`
 - Password: `admin1234`
 
 Override via environment variables:
 
-- `ADMIN_SEED_EMAIL`
+- `ADMIN_SEED_IDENTIFIER`
 - `ADMIN_SEED_PASSWORD`
 - `ADMIN_SEED_NAME`
 

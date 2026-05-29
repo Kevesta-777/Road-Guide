@@ -73,10 +73,10 @@ export async function api<T>(path: string, init?: RequestInit, token?: string): 
   return data as T
 }
 
-export async function loginAdmin(email: string, password: string) {
+export async function loginAdmin(identifier: string, password: string) {
   const auth = await api<{ token: string; user: AuthUser }>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ identifier, password }),
   })
   if (auth.user.role !== 'admin') {
     throw new Error('Only admin users can access this panel.')

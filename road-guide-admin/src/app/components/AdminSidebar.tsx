@@ -66,7 +66,7 @@ export function AdminSidebar({
   ];
 
   return (
-    <div className="w-64 bg-sidebar border-r border-sidebar-border h-screen flex flex-col">
+    <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-sidebar-border bg-sidebar">
       <div className="p-6 border-b border-sidebar-border">
         <h1 className="text-xl text-sidebar-foreground">Road Guide Admin</h1>
         <p className="text-sm text-muted-foreground mt-1">Control Panel</p>
@@ -104,7 +104,7 @@ export function AdminSidebar({
 
       <div className="p-4 border-t border-sidebar-border space-y-1">
         {me && (
-          <div className="px-3 py-2 text-xs text-muted-foreground truncate" title={me.email}>
+          <div className="px-3 py-2 text-xs text-muted-foreground truncate" title={me.identifier}>
             {me.name}
           </div>
         )}
@@ -125,6 +125,6 @@ export function AdminSidebar({
           </button>
         )}
       </div>
-    </div>
+    </aside>
   );
 }

@@ -1,21 +1,21 @@
 import { Building2 } from 'lucide-react'
 
 type LoginPageProps = {
-  email: string
+  identifier: string
   password: string
   busy: boolean
   message: string
-  onEmailChange: (value: string) => void
+  onIdentifierChange: (value: string) => void
   onPasswordChange: (value: string) => void
   onSubmit: () => void
 }
 
 export function LoginPage({
-  email,
+  identifier,
   password,
   busy,
   message,
-  onEmailChange,
+  onIdentifierChange,
   onPasswordChange,
   onSubmit,
 }: LoginPageProps) {
@@ -32,16 +32,17 @@ export function LoginPage({
 
         <div className="bg-card border border-border rounded-lg p-6 space-y-4">
           <div>
-            <label htmlFor="email" className="block text-sm mb-2">
-              Email
+            <label htmlFor="identifier" className="block text-sm mb-2">
+              Identifier
             </label>
             <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(event) => onEmailChange(event.target.value)}
+              id="identifier"
+              type="text"
+              autoComplete="username"
+              value={identifier}
+              onChange={(event) => onIdentifierChange(event.target.value)}
               className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="admin@roadguide.local"
+              placeholder="admin"
             />
           </div>
           <div>

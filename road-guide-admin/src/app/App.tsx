@@ -34,7 +34,7 @@ import { RoadGuideUsersSection } from './components/RoadGuideUsersSection'
 import type { AdminUser, AuthUser, BusinessPoi, RegistrationRequest, Role } from './types'
 
 export default function App() {
-  const [email, setEmail] = useState('admin@roadguide.local')
+  const [identifier, setIdentifier] = useState('admin')
   const [password, setPassword] = useState('admin1234')
   const [token, setToken] = useState('')
   const [me, setMe] = useState<AuthUser | null>(null)
@@ -81,7 +81,7 @@ export default function App() {
     try {
       setBusy(true)
       setMessage('')
-      const auth = await loginAdmin(email, password)
+      const auth = await loginAdmin(identifier, password)
       setToken(auth.token)
       setMe(auth.user)
       setAuthToken(auth.token)
@@ -99,7 +99,7 @@ export default function App() {
       setBusy(true)
       await approveRegistrationRequest(token, request.id, request.poiId)
       await refreshDashboard()
-      setMessage(`Approved request for ${request.user.email}`)
+      setMessage(`Approved request for ${request.user.identifier}`)
       setActiveSection('business')
     } catch (error) {
       setMessage((error as Error).message)
@@ -113,7 +113,7 @@ export default function App() {
       setBusy(true)
       await rejectRegistrationRequest(token, request.id)
       await refreshDashboard()
-      setMessage(`Rejected request for ${request.user.email}`)
+      setMessage(`Rejected request for ${request.user.identifier}`)
     } catch (error) {
       setMessage((error as Error).message)
     } finally {
@@ -161,11 +161,11 @@ export default function App() {
   if (!me) {
     return (
       <LoginPage
-        email={email}
+        identifier={identifier}
         password={password}
         busy={busy}
         message={message}
-        onEmailChange={setEmail}
+        onIdentifierChange={setIdentifier}
         onPasswordChange={setPassword}
         onSubmit={() => void login()}
       />
@@ -237,7 +237,7 @@ export default function App() {
   }
 
   return (
-    <div className="size-full flex bg-background text-foreground min-h-screen">
+    <div className="h-screen overflow-hidden bg-background text-foreground">
       <AdminSidebar
         activeSection={activeSection}
         onSectionChange={setActiveSection}
@@ -247,7 +247,9 @@ export default function App() {
         onLogout={logout}
         pendingClaims={requests.length}
       />
-      <main className="flex-1 overflow-y-auto">{renderSection()}</main>
+      <main className="ml-64 h-screen overflow-y-auto overscroll-y-contain">
+        {renderSection()}
+      </main>
     </div>
   )
 }

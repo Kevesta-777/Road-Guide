@@ -9,9 +9,7 @@ Thumbs.db
 *.sw?
 
 # --- Go backend ---
-road-guide-backend/*.exe
 road-guide-backend/uploads/
-road-guide-backend/*.db
 
 # --- Admin (Node) ---
 road-guide-admin/node_modules/
