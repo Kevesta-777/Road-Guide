@@ -128,6 +128,7 @@ func main() {
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Post("/auth/register", application.handleRegister)
 		api.Post("/auth/login", application.handleLogin)
+		api.Get("/places/panoramas", application.handleListPlacePanoramas)
 
 		api.Group(func(authed chi.Router) {
 			authed.Use(application.requireAuth)
@@ -153,6 +154,10 @@ func main() {
 				admin.Put("/users/{userID}/role", application.handleSetUserRole)
 				admin.Put("/users/{userID}/assignments", application.handleSetUserAssignments)
 				admin.Get("/business-pois", application.handleListBusinessPOIs)
+
+				admin.Get("/panoramas", application.handleListPanoramas)
+				admin.Post("/panoramas/{mediaID}/approve", application.handleApprovePanorama)
+				admin.Post("/panoramas/{mediaID}/reject", application.handleRejectPanorama)
 			})
 		})
 	})
@@ -224,6 +229,11 @@ func migrate(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_biz_req_user_status ON business_registration_requests(user_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_biz_req_poi_status ON business_registration_requests(poi_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_poi_media_poi ON poi_media(poi_id);`,
+		`ALTER TABLE poi_media ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';`,
+		`ALTER TABLE poi_media ADD COLUMN IF NOT EXISTS admin_note TEXT NOT NULL DEFAULT '';`,
+		`ALTER TABLE poi_media ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0;`,
+		`ALTER TABLE poi_media ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT NOT NULL DEFAULT 0;`,
+		`CREATE INDEX IF NOT EXISTS idx_poi_media_kind_status ON poi_media(kind, status);`,
 	}
 	for _, statement := range ddl {
 		if _, err := db.Exec(statement); err != nil {
@@ -692,17 +702,23 @@ func (a *app) handleUploadPOIMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	publicURL, err := a.saveUpload(file, header)
+	publicURL, fileSize, err := a.saveUpload(file, header)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to store media")
 		return
 	}
+	mediaStatus := "approved"
+	if kind == "panorama" {
+		mediaStatus = "pending"
+	}
 	id := uuid.NewString()
 	now := time.Now().UTC()
 	_, err = a.exec(
-		`INSERT INTO poi_media(id, poi_id, kind, url, caption, sort_order, created_by_user_id, created_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, poiID, kind, publicURL, caption, sortOrder, u.ID, now,
+		`INSERT INTO poi_media(
+			 id, poi_id, kind, url, caption, sort_order, created_by_user_id, created_at,
+			 status, admin_note, views, file_size_bytes
+		 ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, '', 0, ?)`,
+		id, poiID, kind, publicURL, caption, sortOrder, u.ID, now, mediaStatus, fileSize,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save media metadata")
@@ -710,13 +726,15 @@ func (a *app) handleUploadPOIMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"media": map[string]any{
-			"id":        id,
-			"poiId":     poiID,
-			"kind":      kind,
-			"url":       publicURL,
-			"caption":   caption,
-			"sortOrder": sortOrder,
-			"createdAt": now,
+			"id":            id,
+			"poiId":         poiID,
+			"kind":          kind,
+			"url":           publicURL,
+			"caption":       caption,
+			"sortOrder":     sortOrder,
+			"status":        mediaStatus,
+			"fileSizeBytes": fileSize,
+			"createdAt":     now,
 		},
 	})
 }
@@ -1037,7 +1055,197 @@ func (a *app) handleListBusinessPOIs(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"pois": pois})
 }
 
-func (a *app) saveUpload(file multipart.File, header *multipart.FileHeader) (string, error) {
+func (a *app) handleListPlacePanoramas(w http.ResponseWriter, r *http.Request) {
+	externalRef := strings.TrimSpace(r.URL.Query().Get("externalRef"))
+	if externalRef == "" {
+		writeErr(w, http.StatusBadRequest, "externalRef is required")
+		return
+	}
+
+	var poiID string
+	err := a.queryRow("SELECT id FROM business_pois WHERE external_ref = ?", externalRef).Scan(&poiID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusOK, map[string]any{"poiId": "", "panoramas": []any{}})
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "failed to resolve place")
+		return
+	}
+
+	panoramas, err := a.listApprovedPanoramas(poiID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to list panoramas")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"poiId":     poiID,
+		"panoramas": panoramas,
+	})
+}
+
+func (a *app) listApprovedPanoramas(poiID string) ([]map[string]any, error) {
+	rows, err := a.query(
+		`SELECT id, url, caption, sort_order, created_at
+		 FROM poi_media
+		 WHERE poi_id = ? AND kind = 'panorama' AND status = 'approved'
+		 ORDER BY sort_order, created_at`,
+		poiID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := []map[string]any{}
+	for rows.Next() {
+		var id, url, caption string
+		var sortOrder int
+		var createdAt time.Time
+		if err := rows.Scan(&id, &url, &caption, &sortOrder, &createdAt); err != nil {
+			return nil, err
+		}
+		result = append(result, map[string]any{
+			"id":        id,
+			"url":       url,
+			"caption":   caption,
+			"sortOrder": sortOrder,
+			"createdAt": createdAt,
+		})
+	}
+	return result, rows.Err()
+}
+
+func (a *app) handleListPanoramas(w http.ResponseWriter, r *http.Request) {
+	statusFilter := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("status")))
+	query := `
+		SELECT m.id, m.poi_id, m.url, m.caption, m.status, m.admin_note, m.views,
+		       m.file_size_bytes, m.created_at, m.created_by_user_id,
+		       p.name, p.address, u.name, u.email
+		FROM poi_media m
+		JOIN business_pois p ON p.id = m.poi_id
+		JOIN users u ON u.id = m.created_by_user_id
+		WHERE m.kind = 'panorama'`
+	args := []any{}
+	if statusFilter != "" && statusFilter != "all" {
+		query += " AND m.status = ?"
+		args = append(args, statusFilter)
+	}
+	query += " ORDER BY m.created_at DESC"
+
+	rows, err := a.query(query, args...)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to list panoramas")
+		return
+	}
+	defer rows.Close()
+
+	items := []map[string]any{}
+	for rows.Next() {
+		var id, poiID, url, caption, status, adminNote, poiName, poiAddress, userName, userEmail, userID string
+		var views int
+		var fileSizeBytes int64
+		var createdAt time.Time
+		if err := rows.Scan(
+			&id, &poiID, &url, &caption, &status, &adminNote, &views,
+			&fileSizeBytes, &createdAt, &userID,
+			&poiName, &poiAddress, &userName, &userEmail,
+		); err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to scan panorama")
+			return
+		}
+		title := strings.TrimSpace(caption)
+		if title == "" {
+			title = poiName + " Panorama"
+		}
+		items = append(items, map[string]any{
+			"id":            id,
+			"title":         title,
+			"poiId":         poiID,
+			"poiName":       poiName,
+			"location":      poiAddress,
+			"uploadedBy":    userName,
+			"userId":        userID,
+			"userEmail":     userEmail,
+			"status":        panoramaStatusLabel(status),
+			"uploadedAt":    createdAt.UTC().Format(time.RFC3339),
+			"views":         views,
+			"thumbnail":     url,
+			"imageUrl":      url,
+			"fileSizeBytes": fileSizeBytes,
+			"rejectionReason": func() string {
+				if status == "rejected" {
+					return adminNote
+				}
+				return ""
+			}(),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to iterate panoramas")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (a *app) handleApprovePanorama(w http.ResponseWriter, r *http.Request) {
+	mediaID := chi.URLParam(r, "mediaID")
+	result, err := a.exec(
+		`UPDATE poi_media SET status = 'approved', admin_note = ''
+		 WHERE id = ? AND kind = 'panorama' AND status = 'pending'`,
+		mediaID,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to approve panorama")
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		writeErr(w, http.StatusNotFound, "pending panorama not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "approved"})
+}
+
+func (a *app) handleRejectPanorama(w http.ResponseWriter, r *http.Request) {
+	mediaID := chi.URLParam(r, "mediaID")
+	var body struct {
+		AdminNote string `json:"adminNote"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	note := strings.TrimSpace(body.AdminNote)
+	if note == "" {
+		note = "Rejected by admin."
+	}
+	result, err := a.exec(
+		`UPDATE poi_media SET status = 'rejected', admin_note = ?
+		 WHERE id = ? AND kind = 'panorama' AND status = 'pending'`,
+		note, mediaID,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to reject panorama")
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		writeErr(w, http.StatusNotFound, "pending panorama not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "rejected"})
+}
+
+func panoramaStatusLabel(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "approved":
+		return "Approved"
+	case "rejected":
+		return "Rejected"
+	default:
+		return "Pending"
+	}
+}
+
+func (a *app) saveUpload(file multipart.File, header *multipart.FileHeader) (string, int64, error) {
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if ext == "" {
 		ext = ".bin"
@@ -1046,13 +1254,14 @@ func (a *app) saveUpload(file multipart.File, header *multipart.FileHeader) (str
 	targetPath := filepath.Join(a.uploadDir, name)
 	out, err := os.Create(targetPath)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	defer out.Close()
-	if _, err := io.Copy(out, file); err != nil {
-		return "", err
+	written, err := io.Copy(out, file)
+	out.Close()
+	if err != nil {
+		return "", 0, err
 	}
-	return strings.TrimSuffix(a.publicUploadPrefix, "/") + "/" + name, nil
+	return strings.TrimSuffix(a.publicUploadPrefix, "/") + "/" + name, written, nil
 }
 
 func (a *app) mustGetPOI(poiID string) (map[string]any, error) {
@@ -1090,7 +1299,7 @@ func (a *app) mustGetPOI(poiID string) (map[string]any, error) {
 
 func (a *app) listPOIMedia(poiID string) ([]map[string]any, error) {
 	rows, err := a.query(
-		`SELECT id, kind, url, caption, sort_order, created_by_user_id, created_at
+		`SELECT id, kind, url, caption, sort_order, created_by_user_id, created_at, status, views, file_size_bytes
 		 FROM poi_media WHERE poi_id = ? ORDER BY kind, sort_order, created_at`,
 		poiID,
 	)
@@ -1100,10 +1309,11 @@ func (a *app) listPOIMedia(poiID string) ([]map[string]any, error) {
 	defer rows.Close()
 	result := []map[string]any{}
 	for rows.Next() {
-		var id, kind, url, caption, userID string
-		var sortOrder int
+		var id, kind, url, caption, userID, status string
+		var sortOrder, views int
+		var fileSizeBytes int64
 		var createdAt time.Time
-		if err := rows.Scan(&id, &kind, &url, &caption, &sortOrder, &userID, &createdAt); err != nil {
+		if err := rows.Scan(&id, &kind, &url, &caption, &sortOrder, &userID, &createdAt, &status, &views, &fileSizeBytes); err != nil {
 			return nil, err
 		}
 		result = append(result, map[string]any{
@@ -1114,6 +1324,9 @@ func (a *app) listPOIMedia(poiID string) ([]map[string]any, error) {
 			"sortOrder":       sortOrder,
 			"createdByUserId": userID,
 			"createdAt":       createdAt,
+			"status":          status,
+			"views":           views,
+			"fileSizeBytes":   fileSizeBytes,
 		})
 	}
 	return result, rows.Err()

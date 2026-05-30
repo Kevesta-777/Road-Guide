@@ -61,7 +61,7 @@ internal fun SignInScreen(
                 when (result) {
                     AuthResult.Success -> onSignedIn()
                     is AuthResult.Failure -> {
-                        errorMessage = authErrorMessage(context, result.error)
+                        errorMessage = authErrorMessage(context, result.error, result.detail)
                         if (result.error == AuthError.InvalidCredentials) password = ""
                     }
                 }

@@ -28,6 +28,23 @@ export type AdminUser = AuthUser & {
   assignedPoiIds: string[]
 }
 
+export type PanoramaImage = {
+  id: string
+  title: string
+  poiName: string
+  poiId: string
+  uploadedBy: string
+  userId: string
+  status: 'Pending' | 'Approved' | 'Rejected'
+  uploadedAt: string
+  views: number
+  location: string
+  thumbnail: string
+  imageUrl: string
+  fileSizeBytes: number
+  rejectionReason?: string
+}
+
 export type AdminSection = 'dashboard' | 'requests' | 'users'
 
 export type DashboardData = {

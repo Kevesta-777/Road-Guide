@@ -7,6 +7,7 @@ This service implements:
 - Admin approval workflow to promote users and assign POIs
 - Ownership-based authorization for all business POI management APIs
 - Business detail editing and media uploads (photo + panorama)
+- Admin review queue for uploaded panoramas (`pending` → `approved` / `rejected`)
 
 ## Run
 
@@ -60,3 +61,11 @@ The app should call:
   - returns `poi`, `media`, and `editContract` endpoint definitions
 
 The mobile app opens an in-app **Business Detail Edit** screen when an assigned business user taps **Claim This Place**.
+
+### Panorama admin review
+
+- Business uploads with `kind=panorama` are stored with `status=pending`.
+- Admin panel **360° Images** loads `GET /api/v1/admin/panoramas` (`{ items: [...] }`).
+- Approve: `POST /api/v1/admin/panoramas/{mediaID}/approve`
+- Reject: `POST /api/v1/admin/panoramas/{mediaID}/reject` with `{ "adminNote": "..." }`
+- Mobile **Look Around** loads approved panoramas: `GET /api/v1/places/panoramas?externalRef=...` (no auth)

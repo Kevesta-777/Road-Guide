@@ -329,13 +329,16 @@ internal class MapScreenController(
                 latLng = place.latLng,
                 title = place.name,
                 subtitle = place.address.ifBlank { place.locality },
+                externalRef = place.businessPoiExternalRef(),
             )
         }
         val center = mapLibreMap?.cameraPosition?.target
+        val mapCenterTitle = context.getString(com.example.roadguideapp.R.string.apple_look_around_map_center)
         return LookAroundTarget(
             latLng = center,
-            title = context.getString(com.example.roadguideapp.R.string.apple_look_around_map_center),
+            title = mapCenterTitle,
             subtitle = center?.let { "${it.latitude}, ${it.longitude}" }.orEmpty(),
+            externalRef = lookAroundExternalRef(center, mapCenterTitle),
         )
     }
 
@@ -430,4 +433,5 @@ internal data class LookAroundTarget(
     val latLng: LatLng?,
     val title: String,
     val subtitle: String,
+    val externalRef: String? = null,
 )

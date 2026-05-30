@@ -77,7 +77,7 @@ internal fun ResetCredentialsScreen(
                 when (result) {
                     AuthResult.Success -> onCredentialsUpdated()
                     is AuthResult.Failure -> {
-                        errorMessage = authErrorMessage(context, result.error)
+                        errorMessage = authErrorMessage(context, result.error, result.detail)
                         if (result.error == AuthError.InvalidCredentials) password = ""
                     }
                 }

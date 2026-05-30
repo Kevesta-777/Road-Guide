@@ -28,7 +28,8 @@ object OfflineAuthStore {
     private val httpClient = OkHttpClient()
 
     const val MIN_IDENTIFIER_LENGTH = 2
-    const val MIN_PASSWORD_LENGTH = 6
+    /** Must match road-guide-backend minimum (8). */
+    const val MIN_PASSWORD_LENGTH = 8
 
     fun hasAccount(context: Context): Boolean = readCredentials(context) != null
 
@@ -66,9 +67,11 @@ object OfflineAuthStore {
             .put("password", password)
         val response = postJson("/auth/login", payload)
         if (!response.ok) {
-            return when (response.statusCode) {
-                401, 404 -> AuthResult.Failure(AuthError.InvalidCredentials)
-                else -> AuthResult.Failure(AuthError.NetworkError)
+            return when {
+                response.statusCode == 0 -> AuthResult.Failure(AuthError.NetworkError)
+                response.statusCode == 401 || response.statusCode == 404 ->
+                    AuthResult.Failure(AuthError.InvalidCredentials)
+                else -> serverFailure(response)
             }
         }
         val body = response.body ?: return AuthResult.Failure(AuthError.NetworkError)
@@ -100,9 +103,10 @@ object OfflineAuthStore {
             .put("password", password)
         val registerResponse = postJson("/auth/register", payload)
         if (!registerResponse.ok) {
-            return when (registerResponse.statusCode) {
-                409 -> AuthResult.Failure(AuthError.AccountAlreadyExists)
-                else -> AuthResult.Failure(AuthError.NetworkError)
+            return when {
+                registerResponse.statusCode == 0 -> AuthResult.Failure(AuthError.NetworkError)
+                registerResponse.statusCode == 409 -> AuthResult.Failure(AuthError.AccountAlreadyExists)
+                else -> serverFailure(registerResponse)
             }
         }
         val body = registerResponse.body ?: return AuthResult.Failure(AuthError.NetworkError)
@@ -247,6 +251,11 @@ object OfflineAuthStore {
         return if (trimmed.contains("@")) trimmed.lowercase() else "${trimmed.lowercase()}@roadguide.local"
     }
 
+    private fun serverFailure(response: HttpResult): AuthResult.Failure {
+        val detail = response.body?.optString("error")?.trim().orEmpty().ifEmpty { null }
+        return AuthResult.Failure(AuthError.ServerError, detail)
+    }
+
     private fun postJson(path: String, payload: JSONObject): HttpResult {
         val base = BuildConfig.MAIN_BACKEND_BASE_URL.trim().trimEnd('/')
         val request = Request.Builder()
@@ -282,7 +291,7 @@ object OfflineAuthStore {
 
 sealed class AuthResult {
     data object Success : AuthResult()
-    data class Failure(val error: AuthError) : AuthResult()
+    data class Failure(val error: AuthError, val detail: String? = null) : AuthResult()
 }
 
 enum class AuthError {
@@ -296,5 +305,6 @@ enum class AuthError {
     PasswordMismatch,
     EmptyFields,
     NetworkError,
+    ServerError,
     UnsupportedOperation,
 }
