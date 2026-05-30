@@ -60,7 +60,7 @@ internal fun SignUpScreen(
                 isSubmitting = false
                 when (result) {
                     AuthResult.Success -> onSignedUp()
-                    is AuthResult.Failure -> errorMessage = authErrorMessage(context, result.error)
+                    is AuthResult.Failure -> errorMessage = authErrorMessage(context, result.error, result.detail)
                 }
             }
         }

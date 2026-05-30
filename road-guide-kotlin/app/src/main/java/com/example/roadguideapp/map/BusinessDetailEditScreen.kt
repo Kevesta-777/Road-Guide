@@ -1,5 +1,6 @@
 package com.example.roadguideapp.map
 
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.roadguideapp.R
+import com.example.roadguideapp.panorama.PanoramaViewerActivity
 import com.example.roadguideapp.auth.AuthField
 import com.example.roadguideapp.auth.OfflineAuthStore
 import com.example.roadguideapp.auth.rememberAuthSheetTheme
@@ -253,33 +255,51 @@ internal fun BusinessDetailEditContent(
                             Text(text = item.caption, color = sheetTheme.secondaryText)
                         }
                     }
-                    OutlinedButton(
-                        enabled = !saving,
-                        onClick = {
-                            val token = OfflineAuthStore.sessionToken(context) ?: return@OutlinedButton
-                            scope.launch {
-                                saving = true
-                                val result = withContext(Dispatchers.IO) {
-                                    BusinessPoiClient.deleteMedia(poiId, item.id, token)
-                                }
-                                when (result) {
-                                    BusinessPoiClient.DeleteResult.Success -> {
-                                        reload()
-                                        Toast.makeText(
-                                            context,
-                                            R.string.business_edit_delete_success,
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                    is BusinessPoiClient.DeleteResult.Failure -> {
-                                        Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                                saving = false
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (item.kind == "panorama") {
+                            OutlinedButton(
+                                enabled = !saving,
+                                onClick = {
+                                    val imageUrl = BusinessPoiClient.resolveMediaUrl(item.url)
+                                    context.startActivity(
+                                        Intent(context, PanoramaViewerActivity::class.java).apply {
+                                            putExtra(PanoramaViewerActivity.EXTRA_IMAGE_URL, imageUrl)
+                                            putExtra(PanoramaViewerActivity.EXTRA_TITLE, name.trim().ifBlank { poiId })
+                                        },
+                                    )
+                                },
+                            ) {
+                                Text(text = stringResource(R.string.business_edit_view_panorama))
                             }
-                        },
-                    ) {
-                        Text(text = stringResource(R.string.business_edit_delete))
+                        }
+                        OutlinedButton(
+                            enabled = !saving,
+                            onClick = {
+                                val token = OfflineAuthStore.sessionToken(context) ?: return@OutlinedButton
+                                scope.launch {
+                                    saving = true
+                                    val result = withContext(Dispatchers.IO) {
+                                        BusinessPoiClient.deleteMedia(poiId, item.id, token)
+                                    }
+                                    when (result) {
+                                        BusinessPoiClient.DeleteResult.Success -> {
+                                            reload()
+                                            Toast.makeText(
+                                                context,
+                                                R.string.business_edit_delete_success,
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                        is BusinessPoiClient.DeleteResult.Failure -> {
+                                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                    saving = false
+                                }
+                            },
+                        ) {
+                            Text(text = stringResource(R.string.business_edit_delete))
+                        }
                     }
                 }
             }

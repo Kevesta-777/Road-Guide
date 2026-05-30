@@ -5,7 +5,6 @@ import android.content.Context
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
-import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
@@ -694,7 +693,7 @@ fun MapLibreMbTilesMap(
                                 }
                                 val token = OfflineAuthStore.sessionToken(context) ?: return@LaunchedEffect
                                 placeClaimButtonModes[place.id] = PlaceClaimButtonMode.Loading
-                                val externalRef = businessPoiExternalRef(place)
+                                val externalRef = place.businessPoiExternalRef()
                                 val resolveResult = withContext(Dispatchers.IO) {
                                     BusinessClaimClient.resolvePoi(
                                         externalRef = externalRef,
@@ -774,7 +773,7 @@ fun MapLibreMbTilesMap(
                                         }
                                     }
                                     coroutineScope.launch {
-                                        val externalRef = businessPoiExternalRef(place)
+                                        val externalRef = place.businessPoiExternalRef()
                                         val resolveResult = withContext(Dispatchers.IO) {
                                             BusinessClaimClient.resolvePoi(
                                                 externalRef = externalRef,
@@ -1144,22 +1143,6 @@ fun MapLibreMbTilesMap(
         }
 
     }
-}
-
-/**
- * Builds a stable identifier for a map place so the backend can map it to a single
- * `business_pois` row across map reloads. Prefers the feature id; otherwise derives a
- * deterministic key from coarse coordinates plus the normalized name.
- */
-private fun businessPoiExternalRef(place: MapPlaceDetail): String {
-    val featureId = place.id.trim()
-    if (featureId.isNotBlank()) {
-        return "feature:$featureId"
-    }
-    val lat = String.format(Locale.US, "%.5f", place.latLng.latitude)
-    val lng = String.format(Locale.US, "%.5f", place.latLng.longitude)
-    val name = place.name.trim().lowercase(Locale.US).replace(Regex("\\s+"), "-")
-    return "geo:$lat,$lng:$name"
 }
 
 private fun navigateToBestAvailableLocation(

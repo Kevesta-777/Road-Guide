@@ -57,7 +57,7 @@ internal fun rememberAuthSheetTheme(): AppleMapsSheetTheme {
     )
 }
 
-fun authErrorMessage(context: Context, error: AuthError): String = when (error) {
+fun authErrorMessage(context: Context, error: AuthError, detail: String? = null): String = when (error) {
     AuthError.NoAccount -> context.getString(R.string.auth_error_no_account)
     AuthError.AccountAlreadyExists -> context.getString(R.string.auth_error_account_exists)
     AuthError.InvalidCredentials -> context.getString(R.string.auth_error_invalid_credentials)
@@ -74,6 +74,7 @@ fun authErrorMessage(context: Context, error: AuthError): String = when (error) 
     AuthError.PasswordMismatch -> context.getString(R.string.auth_error_password_mismatch)
     AuthError.EmptyFields -> context.getString(R.string.auth_error_empty_fields)
     AuthError.NetworkError -> context.getString(R.string.auth_error_network)
+    AuthError.ServerError -> detail ?: context.getString(R.string.auth_error_server)
     AuthError.UnsupportedOperation -> context.getString(R.string.auth_error_unsupported)
 }
 

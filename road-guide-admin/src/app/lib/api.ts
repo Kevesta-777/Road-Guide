@@ -153,3 +153,11 @@ export async function setUserAssignments(authTokenArg: string, userId: string, p
     authTokenArg,
   )
 }
+
+export async function approvePanorama(mediaId: string) {
+  await apiPost(`/panoramas/${mediaId}/approve`, {})
+}
+
+export async function rejectPanorama(mediaId: string, adminNote: string) {
+  await apiPost(`/panoramas/${mediaId}/reject`, { adminNote })
+}

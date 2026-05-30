@@ -48,6 +48,7 @@
     <string name="auth_error_password_too_short">Password must be at least %1$d characters.</string>
     <string name="auth_error_password_mismatch">Passwords do not match.</string>
     <string name="auth_error_network">Could not reach the server. Check network and backend URL.</string>
+    <string name="auth_error_server">The server rejected this request. Check your details and try again.</string>
     <string name="auth_error_unsupported">This action is not supported by the backend yet.</string>
     <string name="auth_sign_out">Sign out</string>
     <string name="auth_profile_id_label">Profile ID</string>
@@ -156,6 +157,8 @@
     <string name="apple_map_style_unavailable">Map style unavailable on tileserver</string>
     <string name="apple_place_hours_unknown">Hours not available</string>
     <string name="apple_look_around_body">Street-level imagery is not bundled in this build. Center the map on this location to explore the area. Connect a Look Around imagery pipeline on your tileserver to enable immersive previews.</string>
+    <string name="apple_look_around_panorama_body">Tap the preview to open the approved 360° panorama in full screen. Drag to look around and pinch to zoom.</string>
+    <string name="apple_look_around_tap_preview">Tap for 360° view</string>
     <string name="apple_look_around_center_map">Center map here</string>
     <string name="apple_look_around_map_center">Map center</string>
     <string name="apple_nearby_filter_price_budget">$</string>
@@ -208,6 +211,10 @@
     <string name="business_edit_delete">Delete</string>
     <string name="business_edit_upload_success">Media uploaded.</string>
     <string name="business_edit_delete_success">Media deleted.</string>
+    <string name="business_edit_view_panorama">View 360°</string>
+    <string name="panorama_viewer_title">360° Panorama</string>
+    <string name="panorama_viewer_close">Close</string>
+    <string name="panorama_viewer_load_error">Could not load panorama: %1$s</string>
 
     <string name="profile_my_business_pois">My Business POIs</string>
     <string name="profile_my_business_pois_empty">No assigned business places yet.</string>
