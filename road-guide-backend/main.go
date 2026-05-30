@@ -1160,7 +1160,7 @@ func (a *app) handleListPanoramas(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT m.id, m.poi_id, m.url, m.caption, m.status, m.admin_note, m.views,
 		       m.file_size_bytes, m.created_at, m.created_by_user_id,
-		       p.name, p.address, u.name, u.email
+		       p.name, p.address, u.name
 		FROM poi_media m
 		JOIN business_pois p ON p.id = m.poi_id
 		JOIN users u ON u.id = m.created_by_user_id
@@ -1181,14 +1181,14 @@ func (a *app) handleListPanoramas(w http.ResponseWriter, r *http.Request) {
 
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, poiID, url, caption, status, adminNote, poiName, poiAddress, userName, userEmail, userID string
+		var id, poiID, url, caption, status, adminNote, poiName, poiAddress, userName, userID string
 		var views int
 		var fileSizeBytes int64
 		var createdAt time.Time
 		if err := rows.Scan(
 			&id, &poiID, &url, &caption, &status, &adminNote, &views,
 			&fileSizeBytes, &createdAt, &userID,
-			&poiName, &poiAddress, &userName, &userEmail,
+			&poiName, &poiAddress, &userName,
 		); err != nil {
 			writeErr(w, http.StatusInternalServerError, "failed to scan panorama")
 			return
@@ -1205,7 +1205,6 @@ func (a *app) handleListPanoramas(w http.ResponseWriter, r *http.Request) {
 			"location":      poiAddress,
 			"uploadedBy":    userName,
 			"userId":        userID,
-			"userEmail":     userEmail,
 			"status":        panoramaStatusLabel(status),
 			"uploadedAt":    createdAt.UTC().Format(time.RFC3339),
 			"views":         views,
