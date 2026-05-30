@@ -54,12 +54,12 @@ type authClaims struct {
 }
 
 type user struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID         string    `json:"id"`
+	Identifier string    `json:"identifier"`
+	Name       string    `json:"name"`
+	Role       string    `json:"role"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 func main() {
@@ -173,13 +173,45 @@ func migrate(db *sql.DB) error {
 	ddl := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id TEXT PRIMARY KEY,
-			email TEXT UNIQUE NOT NULL,
+			identifier TEXT UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
 			name TEXT NOT NULL,
 			role TEXT NOT NULL DEFAULT 'visitor',
 			created_at TIMESTAMPTZ NOT NULL,
 			updated_at TIMESTAMPTZ NOT NULL
 		);`,
+		`DO $migrate$
+		BEGIN
+		  IF EXISTS (
+		    SELECT 1 FROM information_schema.columns
+		    WHERE table_schema = current_schema()
+		      AND table_name = 'users'
+		      AND column_name = 'email'
+		  ) THEN
+		    IF NOT EXISTS (
+		      SELECT 1 FROM information_schema.columns
+		      WHERE table_schema = current_schema()
+		        AND table_name = 'users'
+		        AND column_name = 'identifier'
+		    ) THEN
+		      ALTER TABLE users ADD COLUMN identifier TEXT;
+		    END IF;
+		    UPDATE users
+		      SET identifier = LOWER(TRIM(SPLIT_PART(email, '@', 1)))
+		      WHERE (identifier IS NULL OR TRIM(identifier) = '')
+		        AND email ILIKE '%@roadguide.local';
+		    UPDATE users
+		      SET identifier = LOWER(TRIM(email))
+		      WHERE identifier IS NULL OR TRIM(identifier) = '';
+		    UPDATE users
+		      SET identifier = id
+		      WHERE identifier IS NULL OR TRIM(identifier) = '';
+		    ALTER TABLE users DROP COLUMN email;
+		  END IF;
+		END
+		$migrate$;`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_identifier ON users(identifier);`,
+		`ALTER TABLE users ALTER COLUMN identifier SET NOT NULL;`,
 		`CREATE TABLE IF NOT EXISTS business_pois (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -244,12 +276,12 @@ func migrate(db *sql.DB) error {
 }
 
 func seedAdmin(db *sql.DB) error {
-	email := getenv("ADMIN_SEED_EMAIL", "admin@roadguide.local")
+	identifier := normalizeIdentifier(getenv("ADMIN_SEED_IDENTIFIER", "admin"))
 	password := getenv("ADMIN_SEED_PASSWORD", "admin1234")
 	name := getenv("ADMIN_SEED_NAME", "Road Guide Admin")
 
 	var existing string
-	err := db.QueryRow(rebindPostgres("SELECT id FROM users WHERE email = ?"), email).Scan(&existing)
+	err := db.QueryRow(rebindPostgres("SELECT id FROM users WHERE identifier = ?"), identifier).Scan(&existing)
 	if err == nil {
 		return nil
 	}
@@ -264,10 +296,10 @@ func seedAdmin(db *sql.DB) error {
 	now := time.Now().UTC()
 	_, err = db.Exec(
 		rebindPostgres(
-			`INSERT INTO users(id, email, password_hash, name, role, created_at, updated_at)
+			`INSERT INTO users(id, identifier, password_hash, name, role, created_at, updated_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?)`,
 		),
-		uuid.NewString(), email, string(hash), name, roleAdmin, now, now,
+		uuid.NewString(), identifier, string(hash), name, roleAdmin, now, now,
 	)
 	return err
 }
@@ -306,22 +338,29 @@ func seedPOIs(db *sql.DB) error {
 
 func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		Name     string `json:"name"`
+		Identifier string `json:"identifier"`
+		Password   string `json:"password"`
+		Name       string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	body.Email = strings.TrimSpace(strings.ToLower(body.Email))
+	body.Identifier = normalizeIdentifier(body.Identifier)
 	body.Name = strings.TrimSpace(body.Name)
-	if body.Email == "" || body.Password == "" || body.Name == "" {
-		writeErr(w, http.StatusBadRequest, "email, password, and name are required")
+	if body.Name == "" {
+		body.Name = body.Identifier
+	}
+	if body.Identifier == "" || body.Password == "" {
+		writeErr(w, http.StatusBadRequest, "identifier and password are required")
 		return
 	}
-	if len(body.Password) < 8 {
-		writeErr(w, http.StatusBadRequest, "password must be at least 8 characters")
+	if len(body.Identifier) < 2 {
+		writeErr(w, http.StatusBadRequest, "identifier must be at least 2 characters")
+		return
+	}
+	if len(body.Password) < 6 {
+		writeErr(w, http.StatusBadRequest, "password must be at least 6 characters")
 		return
 	}
 
@@ -332,21 +371,21 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC()
 	newUser := user{
-		ID:        uuid.NewString(),
-		Email:     body.Email,
-		Name:      body.Name,
-		Role:      roleVisitor,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:         uuid.NewString(),
+		Identifier: body.Identifier,
+		Name:       body.Name,
+		Role:       roleVisitor,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 	_, err = a.exec(
-		`INSERT INTO users(id, email, password_hash, name, role, created_at, updated_at)
+		`INSERT INTO users(id, identifier, password_hash, name, role, created_at, updated_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?)`,
-		newUser.ID, newUser.Email, string(hash), newUser.Name, newUser.Role, newUser.CreatedAt, newUser.UpdatedAt,
+		newUser.ID, newUser.Identifier, string(hash), newUser.Name, newUser.Role, newUser.CreatedAt, newUser.UpdatedAt,
 	)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			writeErr(w, http.StatusConflict, "email already registered")
+			writeErr(w, http.StatusConflict, "identifier already registered")
 			return
 		}
 		writeErr(w, http.StatusInternalServerError, "failed to create user")
@@ -365,26 +404,26 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Identifier string `json:"identifier"`
+		Password   string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	body.Email = strings.TrimSpace(strings.ToLower(body.Email))
-	if body.Email == "" || body.Password == "" {
-		writeErr(w, http.StatusBadRequest, "email and password are required")
+	body.Identifier = normalizeIdentifier(body.Identifier)
+	if body.Identifier == "" || body.Password == "" {
+		writeErr(w, http.StatusBadRequest, "identifier and password are required")
 		return
 	}
 
 	var u user
 	var passwordHash string
 	err := a.queryRow(
-		`SELECT id, email, name, role, password_hash, created_at, updated_at
-		 FROM users WHERE email = ?`,
-		body.Email,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &passwordHash, &u.CreatedAt, &u.UpdatedAt)
+		`SELECT id, identifier, name, role, password_hash, created_at, updated_at
+		 FROM users WHERE identifier = ?`,
+		body.Identifier,
+	).Scan(&u.ID, &u.Identifier, &u.Name, &u.Role, &passwordHash, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeErr(w, http.StatusUnauthorized, "invalid credentials")
@@ -778,7 +817,7 @@ func (a *app) handleListRegistrationRequests(w http.ResponseWriter, r *http.Requ
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	query := `
 		SELECT r.id, r.user_id, r.poi_id, r.status, r.message, r.admin_note, r.created_at, r.updated_at,
-		       u.email, u.name, p.name
+		       u.identifier, u.name, p.name
 		FROM business_registration_requests r
 		JOIN users u ON u.id = r.user_id
 		JOIN business_pois p ON p.id = r.poi_id
@@ -800,8 +839,8 @@ func (a *app) handleListRegistrationRequests(w http.ResponseWriter, r *http.Requ
 	for rows.Next() {
 		var id, userID, poiID, reqStatus, msg, adminNote string
 		var createdAt, updatedAt time.Time
-		var userEmail, userName, poiName string
-		if err := rows.Scan(&id, &userID, &poiID, &reqStatus, &msg, &adminNote, &createdAt, &updatedAt, &userEmail, &userName, &poiName); err != nil {
+		var userIdentifier, userName, poiName string
+		if err := rows.Scan(&id, &userID, &poiID, &reqStatus, &msg, &adminNote, &createdAt, &updatedAt, &userIdentifier, &userName, &poiName); err != nil {
 			writeErr(w, http.StatusInternalServerError, "failed to scan requests")
 			return
 		}
@@ -815,8 +854,8 @@ func (a *app) handleListRegistrationRequests(w http.ResponseWriter, r *http.Requ
 			"createdAt": createdAt,
 			"updatedAt": updatedAt,
 			"user": map[string]any{
-				"email": userEmail,
-				"name":  userName,
+				"identifier": userIdentifier,
+				"name":       userName,
 			},
 			"poi": map[string]any{
 				"name": poiName,
@@ -924,7 +963,7 @@ func (a *app) handleRejectRegistrationRequest(w http.ResponseWriter, r *http.Req
 
 func (a *app) handleListUsers(w http.ResponseWriter, _ *http.Request) {
 	rows, err := a.query(
-		`SELECT id, email, name, role, created_at, updated_at
+		`SELECT id, identifier, name, role, created_at, updated_at
 		 FROM users ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -935,7 +974,7 @@ func (a *app) handleListUsers(w http.ResponseWriter, _ *http.Request) {
 	users := []map[string]any{}
 	for rows.Next() {
 		var u user
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Identifier, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			writeErr(w, http.StatusInternalServerError, "failed to scan users")
 			return
 		}
@@ -946,7 +985,7 @@ func (a *app) handleListUsers(w http.ResponseWriter, _ *http.Request) {
 		}
 		users = append(users, map[string]any{
 			"id":             u.ID,
-			"email":          u.Email,
+			"identifier":     u.Identifier,
 			"name":           u.Name,
 			"role":           u.Role,
 			"createdAt":      u.CreatedAt,
@@ -1413,10 +1452,10 @@ func (a *app) requireAuth(next http.Handler) http.Handler {
 		}
 		var u user
 		err = a.queryRow(
-			`SELECT id, email, name, role, created_at, updated_at
+			`SELECT id, identifier, name, role, created_at, updated_at
 			 FROM users WHERE id = ?`,
 			claims.UserID,
-		).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+		).Scan(&u.ID, &u.Identifier, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt)
 		if err != nil {
 			writeErr(w, http.StatusUnauthorized, "user not found")
 			return
@@ -1524,4 +1563,8 @@ func getenv(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func normalizeIdentifier(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }

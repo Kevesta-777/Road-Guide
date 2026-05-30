@@ -93,7 +93,7 @@ export function DashboardPage({ data, onRefresh, busy }: DashboardPageProps) {
                 <div key={request.id} className="border border-border rounded-lg p-4">
                   <p className="font-medium">{request.poi.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    {request.user.name} ({request.user.email})
+                    {request.user.name} ({request.user.identifier})
                   </p>
                 </div>
               ))}
@@ -113,7 +113,7 @@ export function DashboardPage({ data, onRefresh, busy }: DashboardPageProps) {
                 .map((user) => (
                   <div key={user.id} className="border border-border rounded-lg p-4">
                     <p className="font-medium">{user.name}</p>
-                    <p className="text-sm text-muted-foreground">{user.email}</p>
+                    <p className="text-sm text-muted-foreground">{user.identifier}</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       {user.assignedPoiIds.length} assigned POI(s)
                     </p>
