@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
   MapPin,
@@ -21,6 +21,8 @@ import {
   getBusinessPoiDetail,
   updateBusinessPoi,
 } from "../lib/api";
+import { normalizeCategoryId } from "../lib/poiCategories";
+import { useMapPoiCategories } from "../lib/useMapPoiCategories";
 import type { BusinessPoi } from "../types";
 import { PoiManagementMap, type MapPoi } from "./PoiManagementMap";
 
@@ -40,49 +42,11 @@ type PoiRow = BusinessPoi & {
   claimedBy: string | null;
 };
 
-const categoryColors: Record<string, string> = {
-  Restaurant: "bg-red-500",
-  Shop: "bg-blue-500",
-  Entertainment: "bg-purple-500",
-  Services: "bg-green-500",
-  Other: "bg-gray-500",
-};
-
-const POI_CATEGORIES = ["Restaurant", "Shop", "Entertainment", "Services", "Other"];
-
-const OSM_TO_ADMIN_CATEGORY: Record<string, string> = {
-  restaurant: "Restaurant",
-  cafe: "Restaurant",
-  bar: "Restaurant",
-  fast_food: "Restaurant",
-  food: "Restaurant",
-  shop: "Shop",
-  supermarket: "Shop",
-  mall: "Shop",
-  convenience: "Shop",
-  cinema: "Entertainment",
-  theatre: "Entertainment",
-  hotel: "Entertainment",
-  museum: "Entertainment",
-  fuel: "Services",
-  car_repair: "Services",
-  bank: "Services",
-};
-
-function normalizeCategoryLabel(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "Other";
-  const mapped = OSM_TO_ADMIN_CATEGORY[trimmed.toLowerCase()];
-  if (mapped) return mapped;
-  if (POI_CATEGORIES.includes(trimmed)) return trimmed;
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).replace(/_/g, " ");
-}
-
-function poiCategory(poi: BusinessPoi): string {
-  if (poi.category?.trim()) return normalizeCategoryLabel(poi.category);
+function poiCategoryId(poi: BusinessPoi): string {
+  if (poi.category?.trim()) return normalizeCategoryId(poi.category);
   const raw = poi.metadata?.category;
-  if (typeof raw === "string" && raw.trim()) return normalizeCategoryLabel(raw);
-  return "Other";
+  if (typeof raw === "string" && raw.trim()) return normalizeCategoryId(raw);
+  return "";
 }
 
 function poiStatus(poi: BusinessPoi): PoiStatus {
@@ -94,7 +58,7 @@ function poiStatus(poi: BusinessPoi): PoiStatus {
 function toPoiRow(poi: BusinessPoi): PoiRow {
   return {
     ...poi,
-    category: poiCategory(poi),
+    category: poiCategoryId(poi),
     status: poiStatus(poi),
     claimedBy: poi.ownerName ?? null,
   };
@@ -128,7 +92,7 @@ type PoiFormState = {
 
 const emptyForm: PoiFormState = {
   name: "",
-  category: "Other",
+  category: "restaurant",
   address: "",
   latitude: "",
   longitude: "",
@@ -153,6 +117,7 @@ export function POIManagement({
   token,
   onRefresh,
 }: POIManagementProps) {
+  const { categories, loading: categoriesLoading, labelFor, colorFor } = useMapPoiCategories();
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -164,8 +129,24 @@ export function POIManagement({
   const [actionBusy, setActionBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [detailMediaCount, setDetailMediaCount] = useState<number | null>(null);
+  const [categoryMapFocusKey, setCategoryMapFocusKey] = useState(0);
+  const [categoryFocusPois, setCategoryFocusPois] = useState<MapPoi[]>([]);
 
   const poiRows = useMemo(() => pois.map(toPoiRow), [pois]);
+
+  const categoryOptions = useMemo(() => {
+    const byId = new Map(categories.map((category) => [category.id, category]));
+    for (const poi of poiRows) {
+      if (poi.category && !byId.has(poi.category)) {
+        byId.set(poi.category, {
+          id: poi.category,
+          label: labelFor(poi.category),
+          color: colorFor(poi.category),
+        });
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [categories, poiRows, labelFor, colorFor]);
 
   const filteredPOIs = useMemo(() => {
     return poiRows.filter((poi) => {
@@ -189,6 +170,56 @@ export function POIManagement({
     () => filteredPOIs.map(toMapPoi).filter((poi): poi is MapPoi => poi != null),
     [filteredPOIs],
   );
+
+  const mapPoisForCategory = useCallback(
+    (categoryId: string): MapPoi[] => {
+      const rows =
+        categoryId === "All"
+          ? poiRows
+          : poiRows.filter((poi) => poi.category === categoryId);
+      return rows.map(toMapPoi).filter((poi): poi is MapPoi => poi != null);
+    },
+    [poiRows],
+  );
+
+  const triggerCategoryMapFocus = useCallback(
+    (categoryId: string) => {
+      const focusPois = mapPoisForCategory(categoryId);
+      setCategoryFocusPois(focusPois);
+      if (focusPois.length > 0) {
+        setCategoryMapFocusKey((key) => key + 1);
+      }
+    },
+    [mapPoisForCategory],
+  );
+
+  const handleLegendCategoryClick = useCallback(
+    (categoryId: string) => {
+      const nextCategory = filterCategory === categoryId ? "All" : categoryId;
+      setFilterCategory(nextCategory);
+      triggerCategoryMapFocus(nextCategory);
+    },
+    [filterCategory, triggerCategoryMapFocus],
+  );
+
+  const handleCategoryDropdownChange = useCallback(
+    (categoryId: string) => {
+      setFilterCategory(categoryId);
+      if (viewMode === "map") {
+        triggerCategoryMapFocus(categoryId);
+      }
+    },
+    [viewMode, triggerCategoryMapFocus],
+  );
+
+  const prevViewModeRef = useRef(viewMode);
+
+  useEffect(() => {
+    if (prevViewModeRef.current !== "map" && viewMode === "map" && filterCategory !== "All") {
+      triggerCategoryMapFocus(filterCategory);
+    }
+    prevViewModeRef.current = viewMode;
+  }, [viewMode, filterCategory, triggerCategoryMapFocus]);
 
   const selectedPOIData = selectedPOI ? poiRows.find((p) => p.id === selectedPOI) ?? null : null;
 
@@ -400,13 +431,13 @@ export function POIManagement({
             <div className="flex gap-2">
               <select
                 value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
+                onChange={(e) => handleCategoryDropdownChange(e.target.value)}
                 className="px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="All">All Categories</option>
-                {POI_CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
+                {categoryOptions.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.label}
                   </option>
                 ))}
               </select>
@@ -438,20 +469,40 @@ export function POIManagement({
               selectedPoiId={selectedPOI}
               onSelectPoi={handleSelectPOI}
               active={viewMode === "map"}
+              categoryColor={colorFor}
+              focusBoundsPois={categoryFocusPois}
+              focusBoundsKey={categoryMapFocusKey}
             />
 
-            <div className="absolute top-4 right-4 bg-card border border-border rounded-lg p-3 shadow-lg z-10 pointer-events-none">
-              <div className="flex items-center gap-2 mb-3">
-                <Layers className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm">Legend</span>
+            <div className="absolute top-4 right-4 z-10 flex max-h-[min(70vh,28rem)] w-56 flex-col rounded-lg border border-border bg-card p-3 shadow-lg">
+              <div className="mb-3 flex items-center gap-2">
+                <Layers className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm">Map POI Categories</span>
               </div>
-              <div className="space-y-2 text-xs">
-                {POI_CATEGORIES.map((category) => (
-                  <div key={category} className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${categoryColors[category]}`} />
-                    <span>{category}</span>
-                  </div>
-                ))}
+              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 text-xs">
+                {categoriesLoading ? (
+                  <span className="text-muted-foreground">Loading categories…</span>
+                ) : (
+                  categoryOptions.map((category) => {
+                    const active = filterCategory === category.id;
+                    return (
+                      <button
+                        key={category.id}
+                        type="button"
+                        onClick={() => handleLegendCategoryClick(category.id)}
+                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/80 ${
+                          active ? "bg-accent font-medium" : ""
+                        }`}
+                      >
+                        <div
+                          className="h-3 w-3 flex-shrink-0 rounded-full"
+                          style={{ backgroundColor: category.color }}
+                        />
+                        <span className="truncate">{category.label}</span>
+                      </button>
+                    );
+                  })
+                )}
                 <div className="border-t border-border pt-2 mt-2">
                   <div className="flex items-center gap-2">
                     <Building2 className="w-3 h-3 text-purple-600" />
@@ -501,9 +552,10 @@ export function POIManagement({
                   </div>
                   <div className="flex items-center gap-2">
                     <span
-                      className={`px-2 py-1 rounded text-xs ${categoryColors[selectedPOIData.category] ?? categoryColors.Other} text-white`}
+                      className="px-2 py-1 rounded text-xs text-white"
+                      style={{ backgroundColor: colorFor(selectedPOIData.category) }}
                     >
-                      {selectedPOIData.category}
+                      {labelFor(selectedPOIData.category)}
                     </span>
                     <StatusBadge status={selectedPOIData.status} pendingClaims={selectedPOIData.pendingClaims ?? 0} />
                   </div>
@@ -578,7 +630,8 @@ export function POIManagement({
                         <td className="py-4 px-4">
                           <div className="flex items-center gap-3">
                             <div
-                              className={`w-8 h-8 rounded-full ${categoryColors[poi.category] ?? categoryColors.Other} flex items-center justify-center flex-shrink-0`}
+                              className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                              style={{ backgroundColor: colorFor(poi.category) }}
                             >
                               <MapPin className="w-4 h-4 text-white" />
                             </div>
@@ -599,7 +652,7 @@ export function POIManagement({
                         </td>
                         <td className="py-4 px-4">
                           <span className="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm">
-                            {poi.category}
+                            {labelFor(poi.category)}
                           </span>
                         </td>
                         <td className="py-4 px-4">
@@ -693,9 +746,9 @@ export function POIManagement({
                     onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
                     className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    {POI_CATEGORIES.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
+                    {categoryOptions.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.label}
                       </option>
                     ))}
                   </select>
