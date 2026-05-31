@@ -144,6 +144,11 @@ func main() {
 			authed.Post("/business-pois/{poiID}/media", application.handleUploadPOIMedia)
 			authed.Delete("/business-pois/{poiID}/media/{mediaID}", application.handleDeletePOIMedia)
 
+			authed.Get("/friends", application.handleListFriends)
+			authed.Post("/friends", application.handleAddFriend)
+			authed.Delete("/friends/{profileID}", application.handleRemoveFriend)
+			authed.Get("/users/profile/{profileID}", application.handleLookupUserProfile)
+
 			authed.Route("/admin", func(admin chi.Router) {
 				admin.Use(application.requireRole(roleAdmin))
 				admin.Get("/registration-requests", application.handleListRegistrationRequests)
@@ -266,6 +271,15 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE poi_media ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0;`,
 		`ALTER TABLE poi_media ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT NOT NULL DEFAULT 0;`,
 		`CREATE INDEX IF NOT EXISTS idx_poi_media_kind_status ON poi_media(kind, status);`,
+		`CREATE TABLE IF NOT EXISTS user_friends (
+			user_id TEXT NOT NULL,
+			friend_user_id TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL,
+			PRIMARY KEY (user_id, friend_user_id),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (friend_user_id) REFERENCES users(id) ON DELETE CASCADE
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_user_friends_user ON user_friends(user_id);`,
 	}
 	for _, statement := range ddl {
 		if _, err := db.Exec(statement); err != nil {
@@ -811,6 +825,157 @@ func (a *app) handleDeletePOIMedia(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(filepath.Join(a.uploadDir, localPath))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
+}
+
+func (a *app) handleLookupUserProfile(w http.ResponseWriter, r *http.Request) {
+	profileID := strings.TrimSpace(chi.URLParam(r, "profileID"))
+	if !isValidProfileID(profileID) {
+		writeErr(w, http.StatusBadRequest, "invalid profile id")
+		return
+	}
+	profile, err := a.lookupUserProfile(profileID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "profile not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "failed to lookup profile")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"profile": profile})
+}
+
+func (a *app) handleListFriends(w http.ResponseWriter, r *http.Request) {
+	u := userFromContext(r)
+	rows, err := a.query(
+		`SELECT u.id, u.identifier, u.name, uf.created_at
+		 FROM user_friends uf
+		 JOIN users u ON u.id = uf.friend_user_id
+		 WHERE uf.user_id = ?
+		 ORDER BY uf.created_at DESC`,
+		u.ID,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to list friends")
+		return
+	}
+	defer rows.Close()
+	friends := []map[string]any{}
+	for rows.Next() {
+		var profileID, identifier, name string
+		var createdAt time.Time
+		if err := rows.Scan(&profileID, &identifier, &name, &createdAt); err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to scan friends")
+			return
+		}
+		friends = append(friends, map[string]any{
+			"profileId":  profileID,
+			"identifier": identifier,
+			"name":       name,
+			"addedAt":    createdAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"friends": friends})
+}
+
+func (a *app) handleAddFriend(w http.ResponseWriter, r *http.Request) {
+	u := userFromContext(r)
+	var body struct {
+		ProfileID string `json:"profileId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	profileID := strings.TrimSpace(body.ProfileID)
+	if !isValidProfileID(profileID) {
+		writeErr(w, http.StatusBadRequest, "invalid profile id")
+		return
+	}
+	if strings.EqualFold(profileID, u.ID) {
+		writeErr(w, http.StatusBadRequest, "cannot add yourself")
+		return
+	}
+	if _, err := a.lookupUserProfile(profileID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "profile not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "failed to lookup profile")
+		return
+	}
+	var existing int
+	if err := a.queryRow(
+		`SELECT COUNT(*) FROM user_friends WHERE user_id = ? AND friend_user_id = ?`,
+		u.ID, profileID,
+	).Scan(&existing); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to check friendship")
+		return
+	}
+	if existing > 0 {
+		writeErr(w, http.StatusConflict, "already friends")
+		return
+	}
+	now := time.Now().UTC()
+	_, err := a.exec(
+		`INSERT INTO user_friends(user_id, friend_user_id, created_at)
+		 VALUES(?, ?, ?)`,
+		u.ID, profileID, now,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to add friend")
+		return
+	}
+	profile, err := a.lookupUserProfile(profileID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to load friend profile")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"friend": profile})
+}
+
+func (a *app) handleRemoveFriend(w http.ResponseWriter, r *http.Request) {
+	u := userFromContext(r)
+	profileID := strings.TrimSpace(chi.URLParam(r, "profileID"))
+	if !isValidProfileID(profileID) {
+		writeErr(w, http.StatusBadRequest, "invalid profile id")
+		return
+	}
+	result, err := a.exec(
+		`DELETE FROM user_friends WHERE user_id = ? AND friend_user_id = ?`,
+		u.ID, profileID,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to remove friend")
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		writeErr(w, http.StatusNotFound, "friend not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "removed"})
+}
+
+func (a *app) lookupUserProfile(profileID string) (map[string]any, error) {
+	var identifier, name string
+	err := a.queryRow(
+		`SELECT identifier, name FROM users WHERE id = ?`,
+		profileID,
+	).Scan(&identifier, &name)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"profileId":  profileID,
+		"identifier": identifier,
+		"name":       name,
+	}, nil
+}
+
+func isValidProfileID(value string) bool {
+	_, err := uuid.Parse(strings.TrimSpace(value))
+	return err == nil
 }
 
 func (a *app) handleListRegistrationRequests(w http.ResponseWriter, r *http.Request) {

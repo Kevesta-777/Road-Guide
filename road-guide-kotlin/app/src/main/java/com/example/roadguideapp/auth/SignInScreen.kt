@@ -75,6 +75,7 @@ internal fun SignInScreen(
         onBack = onBack,
         modifier = modifier,
         sheetTheme = sheetTheme,
+        showOfflineNotice = true,
     ) {
         AuthField(
             label = stringResource(R.string.auth_identifier_label),

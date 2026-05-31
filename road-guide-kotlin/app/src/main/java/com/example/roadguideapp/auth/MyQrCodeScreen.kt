@@ -1,13 +1,12 @@
 package com.example.roadguideapp.auth
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -16,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,7 +30,7 @@ internal fun MyQrCodeScreen(
 ) {
     val sheetTheme = rememberAuthSheetTheme()
     val density = LocalDensity.current
-    val qrSizePx = with(density) { 240.dp.roundToPx() }
+    val qrSizePx = with(density) { 220.dp.roundToPx() }
     val payload = remember(profileId, displayName) {
         FriendQrPayload.encode(profileId, displayName)
     }
@@ -52,28 +52,37 @@ internal fun MyQrCodeScreen(
                 fontSize = 15.sp,
             )
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(sheetTheme.searchFieldFill, RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (qrBitmap != null) {
-                    Image(
-                        bitmap = qrBitmap.asImageBitmap(),
-                        contentDescription = stringResource(R.string.friends_my_qr),
-                        modifier = Modifier.size(240.dp),
+            AuthGroupedCard(sheetTheme = sheetTheme) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = displayName,
+                        color = sheetTheme.primaryText,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    if (qrBitmap != null) {
+                        Image(
+                            bitmap = qrBitmap.asImageBitmap(),
+                            contentDescription = stringResource(R.string.friends_my_qr),
+                            modifier = Modifier.size(220.dp),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = profileId,
+                        color = sheetTheme.secondaryText,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = profileId,
-                color = sheetTheme.secondaryText,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }

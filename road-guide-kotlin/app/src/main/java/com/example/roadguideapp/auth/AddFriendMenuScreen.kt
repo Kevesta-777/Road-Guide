@@ -7,6 +7,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.roadguideapp.R
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.QrCodeScanner
 
 @Composable
 internal fun AddFriendMenuScreen(
@@ -19,21 +22,25 @@ internal fun AddFriendMenuScreen(
 
     AuthPageScaffold(
         title = stringResource(R.string.friends_add),
-        subtitle = stringResource(R.string.friends_list_subtitle),
+        subtitle = stringResource(R.string.friends_add_menu_subtitle),
         onBack = onBack,
         modifier = modifier,
         sheetTheme = sheetTheme,
     ) {
-        AuthPrimaryButton(
-            text = stringResource(R.string.friends_scan_qr),
-            onClick = onScanQr,
+        AuthOptionCard(
+            icon = Icons.Outlined.QrCodeScanner,
+            title = stringResource(R.string.friends_scan_qr),
+            subtitle = stringResource(R.string.friends_scan_qr_hint),
             sheetTheme = sheetTheme,
+            onClick = onScanQr,
         )
         Spacer(modifier = Modifier.height(12.dp))
-        AuthSecondaryButton(
-            text = stringResource(R.string.friends_add_by_id),
-            onClick = onAddById,
+        AuthOptionCard(
+            icon = Icons.Outlined.Badge,
+            title = stringResource(R.string.friends_add_by_id),
+            subtitle = stringResource(R.string.friends_add_by_id_hint),
             sheetTheme = sheetTheme,
+            onClick = onAddById,
         )
     }
 }

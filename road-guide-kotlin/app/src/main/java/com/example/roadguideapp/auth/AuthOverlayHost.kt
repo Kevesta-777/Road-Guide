@@ -3,18 +3,15 @@ package com.example.roadguideapp.auth
 
 
 import androidx.compose.runtime.Composable
-
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-
 import androidx.compose.runtime.mutableIntStateOf
-
 import androidx.compose.runtime.remember
-
 import androidx.compose.runtime.setValue
-
 import androidx.compose.ui.Modifier
-
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 
 
@@ -44,7 +41,17 @@ internal fun AuthOverlayHost(
 
     val onFriendsChanged: () -> Unit = { friendsRevision++ }
 
-
+    LaunchedEffect(destination) {
+        if (destination == AuthDestination.Friends ||
+            destination == AuthDestination.UserProfile ||
+            destination == AuthDestination.AddFriendMenu
+        ) {
+            withContext(Dispatchers.IO) {
+                OfflineFriendsStore.refreshFromBackend(context)
+            }
+            friendsRevision++
+        }
+    }
 
     when (destination) {
 

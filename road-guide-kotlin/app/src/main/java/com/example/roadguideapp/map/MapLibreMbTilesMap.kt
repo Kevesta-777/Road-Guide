@@ -605,7 +605,11 @@ fun MapLibreMbTilesMap(
                         .align(Alignment.BottomCenter)
                         .zIndex(1f + index),
                     sheetSurfaceColor = activeSheetSurface,
-                    hazeState = if (isBottomLayer) hazeState else null,
+                    hazeState = if (isBottomLayer && !layer.sheet.usesOpaqueSheetSurface()) {
+                        hazeState
+                    } else {
+                        null
+                    },
                 ) { contentScrollEnabled, sheetGestures, sheetModifier ->
                     when (val sheet = layer.sheet) {
                         AppleMapSheet.Home -> {
@@ -830,9 +834,20 @@ fun MapLibreMbTilesMap(
                         }
 
                         is AppleMapSheet.UserProfile -> {
+                            LaunchedEffect(Unit) {
+                                val refreshed = withContext(Dispatchers.IO) {
+                                    OfflineFriendsStore.refreshFromBackend(context)
+                                }
+                                if (refreshed) {
+                                    authRevision++
+                                }
+                            }
                             val friends = remember(authRevision) { OfflineFriendsStore.listFriends(context) }
                             UserProfileSheetContent(
                                 sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
                                 identifier = OfflineAuthStore.sessionIdentifier(context).orEmpty(),
                                 profileId = OfflineAuthStore.profileId(context).orEmpty(),
                                 abbreviation = profileAbbreviation.orEmpty(),
@@ -854,12 +869,7 @@ fun MapLibreMbTilesMap(
                                 onMyQrCode = { authDestination = AuthDestination.MyQrCode },
                                 onAddFriend = { authDestination = AuthDestination.AddFriendMenu },
                                 onFriendsList = { authDestination = AuthDestination.Friends },
-                                modifier = sheetModifier.then(
-                                    sheetGestures.scrollContent(
-                                        scrollState = scrollState,
-                                        scrollEnabled = contentScrollEnabled,
-                                    ),
-                                ),
+                                modifier = sheetModifier,
                             )
                         }
 
@@ -922,7 +932,7 @@ fun MapLibreMbTilesMap(
                     state = scale,
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .zIndex(2f)
+                        .zIndex(0.5f)
                         .statusBarsPadding()
                         .padding(start = 12.dp, top = 8.dp),
                 )
@@ -958,7 +968,7 @@ fun MapLibreMbTilesMap(
                 },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .zIndex(2f)
+                    .zIndex(10f)
                     .statusBarsPadding()
                     .padding(end = 12.dp, top = 8.dp),
             )
@@ -1059,7 +1069,13 @@ fun MapLibreMbTilesMap(
                 destination = destination,
                 onNavigate = { authDestination = it },
                 onDismiss = { authDestination = null },
-                onAuthChanged = { authRevision++ },
+                onAuthChanged = {
+                    authRevision++
+                    coroutineScope.launch(Dispatchers.IO) {
+                        OfflineFriendsStore.refreshFromBackend(context)
+                        authRevision++
+                    }
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(50f),

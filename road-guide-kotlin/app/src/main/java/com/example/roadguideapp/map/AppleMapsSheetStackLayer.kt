@@ -1,6 +1,7 @@
 package com.example.roadguideapp.map
 
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -93,7 +94,7 @@ internal fun AppleMapsSheetStackLayer(
                     style = HazeMaterials.regular(sheetSurfaceColor),
                 )
             } else {
-                Modifier
+                Modifier.background(sheetSurfaceColor.copy(alpha = 1f), shape)
             },
         )
 

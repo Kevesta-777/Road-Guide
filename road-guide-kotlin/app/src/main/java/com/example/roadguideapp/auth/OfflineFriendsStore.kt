@@ -4,10 +4,9 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.util.UUID
 
 /**
- * Local-only friends list: profile IDs saved on this device (no server sync).
+ * Friends list synced with the backend and cached locally for offline display.
  */
 object OfflineFriendsStore {
 
@@ -43,6 +42,51 @@ object OfflineFriendsStore {
     fun hasFriend(context: Context, profileId: String): Boolean =
         listFriends(context).any { it.profileId.equals(profileId.trim(), ignoreCase = true) }
 
+    fun refreshFromBackend(context: Context): Boolean {
+        val token = OfflineAuthStore.sessionToken(context) ?: return false
+        return when (val result = FriendsClient.listFriends(token)) {
+            is FriendsClient.FriendsListResult.Success -> {
+                writeFriends(
+                    context,
+                    result.friends.map {
+                        OfflineFriend(
+                            profileId = it.profileId,
+                            displayName = it.displayName,
+                            addedAtEpochMs = it.addedAtEpochMs,
+                        )
+                    },
+                )
+                true
+            }
+            is FriendsClient.FriendsListResult.Failure -> false
+        }
+    }
+
+    fun resolveProfile(context: Context, profileId: String): ResolveProfileResult {
+        val normalizedId = profileId.trim()
+        if (normalizedId.isEmpty()) return ResolveProfileResult.Failure(FriendError.EmptyProfileId)
+        if (!isValidProfileId(normalizedId)) {
+            return ResolveProfileResult.Failure(FriendError.InvalidProfileId)
+        }
+        val selfId = OfflineAuthStore.profileId(context)
+        if (selfId != null && selfId.equals(normalizedId, ignoreCase = true)) {
+            return ResolveProfileResult.Failure(FriendError.CannotAddSelf)
+        }
+        val token = OfflineAuthStore.sessionToken(context)
+            ?: return ResolveProfileResult.Failure(FriendError.NotSignedIn)
+        return when (val result = FriendsClient.lookupProfile(normalizedId, token)) {
+            is FriendsClient.ProfileLookupResult.Success -> {
+                ResolveProfileResult.Success(result.profile.displayName)
+            }
+            is FriendsClient.ProfileLookupResult.Failure -> {
+                when (result.statusCode) {
+                    404 -> ResolveProfileResult.Failure(FriendError.ProfileNotFound)
+                    else -> ResolveProfileResult.Failure(FriendError.NetworkError)
+                }
+            }
+        }
+    }
+
     fun addFriend(
         context: Context,
         profileId: String,
@@ -60,22 +104,64 @@ object OfflineFriendsStore {
         if (hasFriend(context, normalizedId)) {
             return AddFriendResult.Failure(FriendError.AlreadyFriends)
         }
-        val friends = listFriends(context).toMutableList()
-        friends.add(
-            OfflineFriend(
-                profileId = normalizedId,
-                displayName = displayName?.trim()?.takeIf { it.isNotEmpty() },
-                addedAtEpochMs = System.currentTimeMillis(),
-            ),
-        )
-        writeFriends(context, friends)
-        return AddFriendResult.Success
+        val token = OfflineAuthStore.sessionToken(context)
+            ?: return AddFriendResult.Failure(FriendError.NotSignedIn)
+
+        when (val result = FriendsClient.addFriend(normalizedId, token)) {
+            is FriendsClient.AddFriendApiResult.Success -> {
+                val resolvedName = displayName?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: result.friend.displayName
+                val friends = listFriends(context).toMutableList()
+                friends.add(
+                    OfflineFriend(
+                        profileId = normalizedId,
+                        displayName = resolvedName,
+                        addedAtEpochMs = System.currentTimeMillis(),
+                    ),
+                )
+                writeFriends(context, friends)
+                return AddFriendResult.Success
+            }
+            is FriendsClient.AddFriendApiResult.Failure -> {
+                return when (result.statusCode) {
+                    404 -> AddFriendResult.Failure(FriendError.ProfileNotFound)
+                    409 -> AddFriendResult.Failure(FriendError.AlreadyFriends)
+                    400 -> {
+                        if (result.message.contains("yourself", ignoreCase = true)) {
+                            AddFriendResult.Failure(FriendError.CannotAddSelf)
+                        } else {
+                            AddFriendResult.Failure(FriendError.NetworkError)
+                        }
+                    }
+                    else -> AddFriendResult.Failure(FriendError.NetworkError)
+                }
+            }
+        }
     }
 
-    fun removeFriend(context: Context, profileId: String) {
+    fun removeFriend(context: Context, profileId: String): RemoveFriendResult {
         val normalizedId = profileId.trim()
+        val token = OfflineAuthStore.sessionToken(context)
+            ?: return RemoveFriendResult.Failure(FriendError.NotSignedIn)
+        return when (val apiResult = FriendsClient.removeFriend(normalizedId, token)) {
+            FriendsClient.RemoveFriendApiResult.Success -> {
+                removeFriendLocally(context, normalizedId)
+                RemoveFriendResult.Success
+            }
+            is FriendsClient.RemoveFriendApiResult.Failure -> {
+                if (apiResult.statusCode == 404) {
+                    removeFriendLocally(context, normalizedId)
+                    RemoveFriendResult.Success
+                } else {
+                    RemoveFriendResult.Failure(FriendError.NetworkError)
+                }
+            }
+        }
+    }
+
+    private fun removeFriendLocally(context: Context, profileId: String) {
         val remaining = listFriends(context).filterNot {
-            it.profileId.equals(normalizedId, ignoreCase = true)
+            it.profileId.equals(profileId, ignoreCase = true)
         }
         writeFriends(context, remaining)
     }
@@ -127,9 +213,19 @@ data class OfflineFriend(
     val addedAtEpochMs: Long,
 )
 
+sealed class ResolveProfileResult {
+    data class Success(val displayName: String) : ResolveProfileResult()
+    data class Failure(val error: FriendError) : ResolveProfileResult()
+}
+
 sealed class AddFriendResult {
     data object Success : AddFriendResult()
     data class Failure(val error: FriendError) : AddFriendResult()
+}
+
+sealed class RemoveFriendResult {
+    data object Success : RemoveFriendResult()
+    data class Failure(val error: FriendError) : RemoveFriendResult()
 }
 
 enum class FriendError {
@@ -137,6 +233,9 @@ enum class FriendError {
     InvalidProfileId,
     AlreadyFriends,
     CannotAddSelf,
+    ProfileNotFound,
+    NotSignedIn,
+    NetworkError,
 }
 
 fun friendErrorMessage(context: android.content.Context, error: FriendError): String =
@@ -145,4 +244,7 @@ fun friendErrorMessage(context: android.content.Context, error: FriendError): St
         FriendError.InvalidProfileId -> context.getString(com.example.roadguideapp.R.string.friends_error_invalid_id)
         FriendError.AlreadyFriends -> context.getString(com.example.roadguideapp.R.string.friends_error_already_added)
         FriendError.CannotAddSelf -> context.getString(com.example.roadguideapp.R.string.friends_error_cannot_add_self)
+        FriendError.ProfileNotFound -> context.getString(com.example.roadguideapp.R.string.friends_error_profile_not_found)
+        FriendError.NotSignedIn -> context.getString(com.example.roadguideapp.R.string.friends_error_not_signed_in)
+        FriendError.NetworkError -> context.getString(com.example.roadguideapp.R.string.friends_error_network)
     }

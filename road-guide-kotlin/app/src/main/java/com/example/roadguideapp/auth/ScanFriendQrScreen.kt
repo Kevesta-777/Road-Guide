@@ -10,10 +10,12 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -24,12 +26,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -39,6 +43,9 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun ScanFriendQrScreen(
@@ -49,6 +56,7 @@ internal fun ScanFriendQrScreen(
     val context = LocalContext.current
     val mainExecutor = remember { ContextCompat.getMainExecutor(context) }
     val sheetTheme = rememberAuthSheetTheme()
+    val scope = rememberCoroutineScope()
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -86,21 +94,30 @@ internal fun ScanFriendQrScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        when (val result = OfflineFriendsStore.addFriend(context, payload.profileId, payload.displayName)) {
-                            AddFriendResult.Success -> {
-                                Toast.makeText(context, R.string.friends_added, Toast.LENGTH_SHORT).show()
-                                pendingPayload = null
-                                scanLocked = false
-                                runOnMainThread(context) { onFriendAdded() }
-                            }
-                            is AddFriendResult.Failure -> {
-                                Toast.makeText(
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                OfflineFriendsStore.addFriend(
                                     context,
-                                    friendErrorMessage(context, result.error),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                                pendingPayload = null
-                                scanLocked = false
+                                    payload.profileId,
+                                    payload.displayName,
+                                )
+                            }
+                            when (result) {
+                                AddFriendResult.Success -> {
+                                    Toast.makeText(context, R.string.friends_added, Toast.LENGTH_SHORT).show()
+                                    pendingPayload = null
+                                    scanLocked = false
+                                    runOnMainThread(context) { onFriendAdded() }
+                                }
+                                is AddFriendResult.Failure -> {
+                                    Toast.makeText(
+                                        context,
+                                        friendErrorMessage(context, result.error),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    pendingPayload = null
+                                    scanLocked = false
+                                }
                             }
                         }
                     },
@@ -138,13 +155,16 @@ internal fun ScanFriendQrScreen(
                 modifier = Modifier.padding(top = 16.dp),
             )
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(320.dp)
-                    .clip(RoundedCornerShape(16.dp)),
-            ) {
-                QrCameraPreview(
+            AuthGroupedCard(sheetTheme = sheetTheme) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(300.dp)
+                        .padding(12.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, sheetTheme.divider.copy(alpha = 0.5f), RoundedCornerShape(14.dp)),
+                ) {
+                    QrCameraPreview(
                     enabled = !scanLocked && pendingPayload == null,
                     onQrDecoded = { raw ->
                         mainExecutor.execute {
@@ -159,12 +179,41 @@ internal fun ScanFriendQrScreen(
                                 return@execute
                             }
                             scanLocked = true
-                            pendingPayload = payload
+                            scope.launch {
+                                val resolvedName = payload.displayName?.trim()?.takeIf { it.isNotEmpty() }
+                                    ?: when (
+                                        val lookup = withContext(Dispatchers.IO) {
+                                            OfflineFriendsStore.resolveProfile(context, payload.profileId)
+                                        }
+                                    ) {
+                                        is ResolveProfileResult.Success -> lookup.displayName
+                                        is ResolveProfileResult.Failure -> {
+                                            Toast.makeText(
+                                                context,
+                                                friendErrorMessage(context, lookup.error),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                            scanLocked = false
+                                            null
+                                        }
+                                    }
+                                if (resolvedName != null) {
+                                    pendingPayload = payload.copy(displayName = resolvedName)
+                                }
+                            }
                         }
                     },
-                    modifier = Modifier.fillMaxSize(),
-                )
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = stringResource(R.string.friends_scan_qr_hint),
+                color = sheetTheme.secondaryText,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
         }
     }
 }

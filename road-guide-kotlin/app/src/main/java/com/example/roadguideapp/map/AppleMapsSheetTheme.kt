@@ -105,7 +105,7 @@ private fun lightSheetTheme(): AppleMapsSheetTheme {
 }
 
 private fun darkSheetTheme(): AppleMapsSheetTheme {
-    val surface = Color(0xF0242426)
+    val surface = Color(0xFF242426)
     val text = Color.White
     val secondary = Color(0xFF8E8E93)
     return AppleMapsSheetTheme(

@@ -16,6 +16,14 @@ internal fun AppleMapSheet.isSyncedStackSheet(): Boolean = when (this) {
     is AppleMapSheet.UserProfile -> false
 }
 
+/** Sheets that must render a solid surface instead of the map blur material. */
+internal fun AppleMapSheet.usesOpaqueSheetSurface(): Boolean = when (this) {
+    is AppleMapSheet.UserProfile,
+    is AppleMapSheet.AddStop,
+    -> true
+    else -> false
+}
+
 /** Identifies a sheet in the stacked bottom-sheet UI. */
 internal sealed class AppleMapSheet {
     abstract val stackId: String
