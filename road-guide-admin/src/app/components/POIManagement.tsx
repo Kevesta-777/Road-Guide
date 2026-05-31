@@ -1,88 +1,294 @@
-import { useState } from "react";
-import { Search, MapPin, Plus, MoreVertical, CheckCircle, Clock, XCircle, Edit, List, Map as MapIcon, Filter, Building2, Star, Navigation, Layers } from "lucide-react";
-import { useAdminCollection } from "../hooks/useAdminResource";
+import { useCallback, useMemo, useState } from "react";
+import {
+  Search,
+  MapPin,
+  Plus,
+  MoreVertical,
+  CheckCircle,
+  Clock,
+  XCircle,
+  Edit,
+  List,
+  Map as MapIcon,
+  Filter,
+  Building2,
+  Navigation,
+  Layers,
+  RefreshCw,
+} from "lucide-react";
+import {
+  createBusinessPoi,
+  getBusinessPoiDetail,
+  updateBusinessPoi,
+} from "../lib/api";
+import type { BusinessPoi } from "../types";
+import { PoiManagementMap, type MapPoi } from "./PoiManagementMap";
 
-type POI = {
-  id: number;
-  name: string;
-  category: string;
-  address: string;
-  lat: number;
-  lng: number;
-  status: string;
-  claimedBy: string | null;
-  businessId: number | null;
-  rating: number;
-  reviews: number;
-  claims: number;
-  verified: boolean;
+type POIManagementProps = {
+  pois: BusinessPoi[];
+  pendingClaimCount: number;
+  busy: boolean;
+  token: string;
+  onRefresh: () => void;
 };
 
-const fallbackPOIs: POI[] = [
-  { id: 1, name: "Joe's Coffee Shop", category: "Restaurant", address: "123 Main St, Downtown", lat: 40.7580, lng: -73.9855, status: "Approved", claimedBy: "Joe Smith", businessId: 1, rating: 4.5, reviews: 234, claims: 0, verified: true },
-  { id: 2, name: "Tech Store Plus", category: "Shop", address: "456 Oak Ave, Midtown", lat: 40.7614, lng: -73.9776, status: "Pending", claimedBy: null, businessId: null, rating: 4.2, reviews: 89, claims: 1, verified: false },
-  { id: 3, name: "City Park", category: "Entertainment", address: "789 Park Rd, Uptown", lat: 40.7689, lng: -73.9681, status: "Approved", claimedBy: null, businessId: null, rating: 4.8, reviews: 567, claims: 0, verified: false },
-  { id: 4, name: "Quick Repair", category: "Services", address: "321 Elm St, West Side", lat: 40.7489, lng: -73.9680, status: "Rejected", claimedBy: null, businessId: null, rating: 3.9, reviews: 45, claims: 0, verified: false },
-  { id: 5, name: "Bella Restaurant", category: "Restaurant", address: "654 Pine St, East End", lat: 40.7529, lng: -73.9925, status: "Approved", claimedBy: "Maria Lopez", businessId: 3, rating: 4.7, reviews: 432, claims: 0, verified: true },
-  { id: 6, name: "Gym Fitness Pro", category: "Services", address: "987 Maple Dr, South District", lat: 40.7458, lng: -73.9867, status: "Pending", claimedBy: null, businessId: null, rating: 4.3, reviews: 156, claims: 2, verified: false },
-  { id: 7, name: "TechMart Store", category: "Shop", address: "555 Tech Blvd, Innovation Quarter", lat: 40.7601, lng: -73.9845, status: "Approved", claimedBy: "Sarah Johnson", businessId: 2, rating: 4.4, reviews: 178, claims: 0, verified: true },
-  { id: 8, name: "Green Grocery", category: "Shop", address: "234 Market St, Old Town", lat: 40.7542, lng: -73.9712, status: "Approved", claimedBy: null, businessId: null, rating: 4.6, reviews: 289, claims: 0, verified: false },
-];
+type PoiStatus = "Pending" | "Claimed" | "Unclaimed";
+
+type PoiRow = BusinessPoi & {
+  category: string;
+  status: PoiStatus;
+  claimedBy: string | null;
+};
 
 const categoryColors: Record<string, string> = {
   Restaurant: "bg-red-500",
   Shop: "bg-blue-500",
   Entertainment: "bg-purple-500",
   Services: "bg-green-500",
+  Other: "bg-gray-500",
 };
 
-export function POIManagement() {
-  const [viewMode, setViewMode] = useState<"list" | "map">("map");
+const POI_CATEGORIES = ["Restaurant", "Shop", "Entertainment", "Services", "Other"];
+
+function poiCategory(poi: BusinessPoi): string {
+  const raw = poi.metadata?.category;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return "Other";
+}
+
+function poiStatus(poi: BusinessPoi): PoiStatus {
+  if ((poi.pendingClaims ?? 0) > 0) return "Pending";
+  if (poi.ownerName) return "Claimed";
+  return "Unclaimed";
+}
+
+function toPoiRow(poi: BusinessPoi): PoiRow {
+  return {
+    ...poi,
+    category: poiCategory(poi),
+    status: poiStatus(poi),
+    claimedBy: poi.ownerName ?? null,
+  };
+}
+
+function hasCoordinates(poi: BusinessPoi): poi is BusinessPoi & { latitude: number; longitude: number } {
+  return typeof poi.latitude === "number" && typeof poi.longitude === "number";
+}
+
+function toMapPoi(poi: PoiRow): MapPoi | null {
+  if (!hasCoordinates(poi)) return null;
+  return {
+    id: poi.id,
+    name: poi.name,
+    category: poi.category,
+    status: poi.status === "Pending" ? "Pending" : poi.status === "Claimed" ? "Claimed" : "Unclaimed",
+    latitude: poi.latitude,
+    longitude: poi.longitude,
+    claimedBy: poi.claimedBy,
+  };
+}
+
+type PoiFormState = {
+  name: string;
+  category: string;
+  address: string;
+  latitude: string;
+  longitude: string;
+  description: string;
+};
+
+const emptyForm: PoiFormState = {
+  name: "",
+  category: "Other",
+  address: "",
+  latitude: "",
+  longitude: "",
+  description: "",
+};
+
+function formFromPoi(poi: PoiRow): PoiFormState {
+  return {
+    name: poi.name,
+    category: poi.category,
+    address: poi.address,
+    latitude: poi.latitude != null ? String(poi.latitude) : "",
+    longitude: poi.longitude != null ? String(poi.longitude) : "",
+    description: poi.description ?? "",
+  };
+}
+
+export function POIManagement({
+  pois,
+  pendingClaimCount,
+  busy,
+  token,
+  onRefresh,
+}: POIManagementProps) {
+  const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterCategory, setFilterCategory] = useState("All");
-  const [selectedPOI, setSelectedPOI] = useState<number | null>(null);
+  const [selectedPOI, setSelectedPOI] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingPOI, setEditingPOI] = useState<PoiRow | null>(null);
+  const [form, setForm] = useState<PoiFormState>(emptyForm);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
+  const [detailMediaCount, setDetailMediaCount] = useState<number | null>(null);
 
-  const { data: mockPOIs } = useAdminCollection<POI>("/pois", fallbackPOIs);
+  const poiRows = useMemo(() => pois.map(toPoiRow), [pois]);
 
-  const filteredPOIs = mockPOIs.filter(poi => {
-    const matchesSearch = poi.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         poi.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (poi.claimedBy && poi.claimedBy.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesStatus = filterStatus === "All" || poi.status === filterStatus;
-    const matchesCategory = filterCategory === "All" || poi.category === filterCategory;
-    return matchesSearch && matchesStatus && matchesCategory;
-  });
+  const filteredPOIs = useMemo(() => {
+    return poiRows.filter((poi) => {
+      const query = searchTerm.toLowerCase();
+      const matchesSearch =
+        poi.name.toLowerCase().includes(query) ||
+        poi.address.toLowerCase().includes(query) ||
+        (poi.claimedBy?.toLowerCase().includes(query) ?? false) ||
+        (poi.description?.toLowerCase().includes(query) ?? false);
+      const matchesStatus =
+        filterStatus === "All" ||
+        (filterStatus === "Pending Review" && poi.status === "Pending") ||
+        (filterStatus === "Claimed" && poi.status === "Claimed") ||
+        (filterStatus === "Unclaimed" && poi.status === "Unclaimed");
+      const matchesCategory = filterCategory === "All" || poi.category === filterCategory;
+      return matchesSearch && matchesStatus && matchesCategory;
+    });
+  }, [poiRows, searchTerm, filterStatus, filterCategory]);
 
-  const selectedPOIData = selectedPOI ? mockPOIs.find(p => p.id === selectedPOI) : null;
+  const mapPOIs = useMemo(
+    () => filteredPOIs.map(toMapPoi).filter((poi): poi is MapPoi => poi != null),
+    [filteredPOIs],
+  );
+
+  const selectedPOIData = selectedPOI ? poiRows.find((p) => p.id === selectedPOI) ?? null : null;
+
+  const businessOwnedCount = useMemo(
+    () => poiRows.filter((poi) => poi.status === "Claimed").length,
+    [poiRows],
+  );
+  const unclaimedCount = useMemo(
+    () => poiRows.filter((poi) => poi.status === "Unclaimed").length,
+    [poiRows],
+  );
+
+  const loadDetail = useCallback(
+    async (poiId: string) => {
+      setDetailMediaCount(null);
+      try {
+        const detail = await getBusinessPoiDetail(token, poiId);
+        setDetailMediaCount(detail.media.length);
+      } catch {
+        setDetailMediaCount(null);
+      }
+    },
+    [token],
+  );
+
+  const handleSelectPOI = useCallback(
+    (poiId: string) => {
+      setSelectedPOI(poiId);
+      void loadDetail(poiId);
+    },
+    [loadDetail],
+  );
+
+  const parseCoordinate = (value: string): number | undefined => {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const parsed = Number.parseFloat(trimmed);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+
+  const handleSavePOI = async () => {
+    setActionBusy(true);
+    setActionMessage("");
+    try {
+      const latitude = parseCoordinate(form.latitude);
+      const longitude = parseCoordinate(form.longitude);
+      const metadata = { category: form.category };
+
+      if (editingPOI) {
+        await updateBusinessPoi(token, editingPOI.id, {
+          name: form.name.trim(),
+          address: form.address.trim(),
+          description: form.description.trim(),
+          metadata: { ...editingPOI.metadata, ...metadata },
+        });
+        setActionMessage("POI updated.");
+      } else {
+        await createBusinessPoi(token, {
+          name: form.name.trim(),
+          address: form.address.trim(),
+          description: form.description.trim(),
+          category: form.category,
+          latitude,
+          longitude,
+        });
+        setActionMessage("POI created.");
+      }
+      setShowAddModal(false);
+      setEditingPOI(null);
+      setForm(emptyForm);
+      onRefresh();
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Failed to save POI.");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const openEdit = (poi: PoiRow) => {
+    setEditingPOI(poi);
+    setForm(formFromPoi(poi));
+    setShowAddModal(true);
+  };
+
+  const openAdd = () => {
+    setEditingPOI(null);
+    setForm(emptyForm);
+    setShowAddModal(true);
+  };
+
+  const closeModal = () => {
+    setShowAddModal(false);
+    setEditingPOI(null);
+    setForm(emptyForm);
+  };
 
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl mb-2">POI Management</h2>
-          <p className="text-muted-foreground">Manage points of interest and business claims</p>
+          <p className="text-muted-foreground">Manage business POIs, ownership, and claim requests</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={busy}
+            className="inline-flex items-center gap-2 px-4 py-2 border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-60"
+          >
+            <RefreshCw className={`w-4 h-4 ${busy ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
           <div className="flex items-center gap-1 bg-card border border-border rounded-lg p-1">
             <button
+              type="button"
               onClick={() => setViewMode("list")}
               className={`px-4 py-2 rounded-md transition-colors flex items-center gap-2 ${
-                viewMode === "list"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-accent"
+                viewMode === "list" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
               }`}
             >
               <List className="w-4 h-4" />
               List
             </button>
             <button
+              type="button"
               onClick={() => setViewMode("map")}
               className={`px-4 py-2 rounded-md transition-colors flex items-center gap-2 ${
-                viewMode === "map"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-accent"
+                viewMode === "map" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
               }`}
             >
               <MapIcon className="w-4 h-4" />
@@ -90,7 +296,8 @@ export function POIManagement() {
             </button>
           </div>
           <button
-            onClick={() => setShowAddModal(true)}
+            type="button"
+            onClick={openAdd}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
@@ -99,14 +306,20 @@ export function POIManagement() {
         </div>
       </div>
 
+      {actionMessage && (
+        <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg p-4 text-sm text-blue-800 dark:text-blue-300">
+          {actionMessage}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-card border border-border rounded-lg p-5">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm">Total POIs</h3>
             <MapPin className="w-5 h-5 text-chart-1" />
           </div>
-          <div className="text-2xl mb-1">8,429</div>
-          <p className="text-xs text-muted-foreground">+156 this week</p>
+          <div className="text-2xl mb-1">{poiRows.length}</div>
+          <p className="text-xs text-muted-foreground">Registered business places</p>
         </div>
 
         <div className="bg-card border border-border rounded-lg p-5">
@@ -114,8 +327,8 @@ export function POIManagement() {
             <h3 className="text-sm">Pending Claims</h3>
             <Clock className="w-5 h-5 text-yellow-600" />
           </div>
-          <div className="text-2xl mb-1">23</div>
-          <p className="text-xs text-muted-foreground">Require review</p>
+          <div className="text-2xl mb-1">{pendingClaimCount}</div>
+          <p className="text-xs text-muted-foreground">Awaiting review in Business Accounts</p>
         </div>
 
         <div className="bg-card border border-border rounded-lg p-5">
@@ -123,17 +336,21 @@ export function POIManagement() {
             <h3 className="text-sm">Business Owned</h3>
             <Building2 className="w-5 h-5 text-purple-600" />
           </div>
-          <div className="text-2xl mb-1">3,234</div>
-          <p className="text-xs text-muted-foreground">38% of total</p>
+          <div className="text-2xl mb-1">{businessOwnedCount}</div>
+          <p className="text-xs text-muted-foreground">
+            {poiRows.length > 0
+              ? `${Math.round((businessOwnedCount / poiRows.length) * 100)}% of total`
+              : "No POIs yet"}
+          </p>
         </div>
 
         <div className="bg-card border border-border rounded-lg p-5">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm">Avg Rating</h3>
-            <Star className="w-5 h-5 text-yellow-500" />
+            <h3 className="text-sm">Unclaimed</h3>
+            <MapPin className="w-5 h-5 text-muted-foreground" />
           </div>
-          <div className="text-2xl mb-1">4.3</div>
-          <p className="text-xs text-muted-foreground">Across all POIs</p>
+          <div className="text-2xl mb-1">{unclaimedCount}</div>
+          <p className="text-xs text-muted-foreground">Available for business claims</p>
         </div>
       </div>
 
@@ -144,7 +361,7 @@ export function POIManagement() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search POIs by name, address, or owner..."
+                placeholder="Search POIs by name, address, owner, or description..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
@@ -156,25 +373,29 @@ export function POIManagement() {
                 onChange={(e) => setFilterCategory(e.target.value)}
                 className="px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option>All Categories</option>
-                <option>Restaurant</option>
-                <option>Shop</option>
-                <option>Entertainment</option>
-                <option>Services</option>
+                <option value="All">All Categories</option>
+                {POI_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
               </select>
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
                 className="px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option>All Status</option>
-                <option>Approved</option>
-                <option>Pending</option>
-                <option>Rejected</option>
+                <option value="All">All Status</option>
+                <option value="Claimed">Claimed</option>
+                <option value="Pending Review">Pending Review</option>
+                <option value="Unclaimed">Unclaimed</option>
               </select>
-              <button className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors flex items-center gap-2">
+              <button
+                type="button"
+                className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors flex items-center gap-2"
+              >
                 <Filter className="w-4 h-4" />
-                More Filters
+                {filteredPOIs.length} results
               </button>
             </div>
           </div>
@@ -182,101 +403,56 @@ export function POIManagement() {
 
         {viewMode === "map" ? (
           <div className="relative">
-            <div className="h-[600px] bg-gradient-to-br from-blue-50 to-green-50 dark:from-gray-800 dark:to-gray-900 relative overflow-hidden">
-              <div className="absolute inset-0" style={{
-                backgroundImage: `
-                  linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
-                  linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px)
-                `,
-                backgroundSize: '40px 40px'
-              }}>
+            <PoiManagementMap
+              pois={mapPOIs}
+              selectedPoiId={selectedPOI}
+              onSelectPoi={handleSelectPOI}
+              active={viewMode === "map"}
+            />
+
+            <div className="absolute top-4 right-4 bg-card border border-border rounded-lg p-3 shadow-lg z-10 pointer-events-none">
+              <div className="flex items-center gap-2 mb-3">
+                <Layers className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm">Legend</span>
               </div>
-
-              {filteredPOIs.map((poi) => {
-                const xPos = ((poi.lng + 74) * 1000) % 100;
-                const yPos = ((poi.lat - 40.74) * 1000) % 100;
-
-                return (
-                  <div
-                    key={poi.id}
-                    onClick={() => setSelectedPOI(poi.id)}
-                    className="absolute cursor-pointer transform -translate-x-1/2 -translate-y-1/2 group"
-                    style={{
-                      left: `${xPos}%`,
-                      top: `${yPos}%`
-                    }}
-                  >
-                    <div className={`w-10 h-10 rounded-full ${categoryColors[poi.category]} shadow-lg flex items-center justify-center transition-transform group-hover:scale-125 ${
-                      selectedPOI === poi.id ? 'ring-4 ring-white scale-125' : ''
-                    }`}>
-                      <MapPin className="w-5 h-5 text-white" />
-                    </div>
-                    {poi.claimedBy && (
-                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-purple-600 rounded-full border-2 border-white flex items-center justify-center">
-                        <Building2 className="w-2.5 h-2.5 text-white" />
-                      </div>
-                    )}
-                    {poi.status === "Pending" && (
-                      <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full border-2 border-white">
-                        <Clock className="w-2.5 h-2.5 text-white" />
-                      </div>
-                    )}
+              <div className="space-y-2 text-xs">
+                {POI_CATEGORIES.map((category) => (
+                  <div key={category} className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${categoryColors[category]}`} />
+                    <span>{category}</span>
                   </div>
-                );
-              })}
-
-              <div className="absolute top-4 right-4 bg-card border border-border rounded-lg p-3 shadow-lg">
-                <div className="flex items-center gap-2 mb-3">
-                  <Layers className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm">Legend</span>
-                </div>
-                <div className="space-y-2 text-xs">
+                ))}
+                <div className="border-t border-border pt-2 mt-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                    <span>Restaurant</span>
+                    <Building2 className="w-3 h-3 text-purple-600" />
+                    <span>Business Owned</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                    <span>Shop</span>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Clock className="w-3 h-3 text-yellow-500" />
+                    <span>Pending Review</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-                    <span>Entertainment</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                    <span>Services</span>
-                  </div>
-                  <div className="border-t border-border pt-2 mt-2">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="w-3 h-3 text-purple-600" />
-                      <span>Business Owned</span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Clock className="w-3 h-3 text-yellow-500" />
-                      <span>Pending Review</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="absolute bottom-4 left-4 bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
-                <div className="flex items-center gap-2 text-sm">
-                  <Navigation className="w-4 h-4 text-chart-1" />
-                  <span className="text-muted-foreground">Showing</span>
-                  <span className="font-medium">{filteredPOIs.length} POIs</span>
                 </div>
               </div>
             </div>
 
+            <div className="absolute bottom-4 left-4 bg-card border border-border rounded-lg px-3 py-2 shadow-lg z-10 pointer-events-none">
+              <div className="flex items-center gap-2 text-sm">
+                <Navigation className="w-4 h-4 text-chart-1" />
+                <span className="text-muted-foreground">On map</span>
+                <span className="font-medium">
+                  {mapPOIs.length} of {filteredPOIs.length} POIs
+                </span>
+              </div>
+            </div>
+
             {selectedPOIData && (
-              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg shadow-2xl w-96 overflow-hidden animate-in slide-in-from-bottom-4">
+              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 bg-card border border-border rounded-lg shadow-2xl w-96 overflow-hidden animate-in slide-in-from-bottom-4">
                 <div className="p-4 border-b border-border bg-accent/30">
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <h3>{selectedPOIData.name}</h3>
-                        {selectedPOIData.verified && (
+                        {selectedPOIData.status === "Claimed" && (
                           <CheckCircle className="w-4 h-4 text-green-600" />
                         )}
                       </div>
@@ -286,6 +462,7 @@ export function POIManagement() {
                       </div>
                     </div>
                     <button
+                      type="button"
                       onClick={() => setSelectedPOI(null)}
                       className="p-1 hover:bg-accent rounded transition-colors"
                     >
@@ -293,18 +470,12 @@ export function POIManagement() {
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 rounded text-xs ${categoryColors[selectedPOIData.category]} text-white`}>
+                    <span
+                      className={`px-2 py-1 rounded text-xs ${categoryColors[selectedPOIData.category] ?? categoryColors.Other} text-white`}
+                    >
                       {selectedPOIData.category}
                     </span>
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      selectedPOIData.status === "Approved"
-                        ? "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300"
-                        : selectedPOIData.status === "Rejected"
-                        ? "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300"
-                        : "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300"
-                    }`}>
-                      {selectedPOIData.status}
-                    </span>
+                    <StatusBadge status={selectedPOIData.status} pendingClaims={selectedPOIData.pendingClaims ?? 0} />
                   </div>
                 </div>
                 <div className="p-4 space-y-3">
@@ -317,30 +488,34 @@ export function POIManagement() {
                       </div>
                     </div>
                   )}
-                  <div className="grid grid-cols-3 gap-3 text-center">
+                  {selectedPOIData.description && (
+                    <p className="text-sm text-muted-foreground line-clamp-3">{selectedPOIData.description}</p>
+                  )}
+                  <div className="grid grid-cols-2 gap-3 text-center text-sm">
                     <div>
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                        <span className="font-medium">{selectedPOIData.rating}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">Rating</p>
+                      <div className="font-medium mb-1">{detailMediaCount ?? "—"}</div>
+                      <p className="text-xs text-muted-foreground">Media items</p>
                     </div>
                     <div>
-                      <div className="font-medium mb-1">{selectedPOIData.reviews}</div>
-                      <p className="text-xs text-muted-foreground">Reviews</p>
-                    </div>
-                    <div>
-                      <div className="font-medium mb-1">{selectedPOIData.claims}</div>
-                      <p className="text-xs text-muted-foreground">Claims</p>
+                      <div className="font-medium mb-1">{selectedPOIData.pendingClaims ?? 0}</div>
+                      <p className="text-xs text-muted-foreground">Pending claims</p>
                     </div>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button className="flex-1 px-3 py-2 border border-border rounded-lg hover:bg-accent transition-colors text-sm">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(selectedPOIData)}
+                      className="flex-1 px-3 py-2 border border-border rounded-lg hover:bg-accent transition-colors text-sm"
+                    >
                       <Edit className="w-4 h-4 inline mr-1" />
                       Edit
                     </button>
-                    <button className="flex-1 px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm">
-                      View Details
+                    <button
+                      type="button"
+                      onClick={() => void loadDetail(selectedPOIData.id)}
+                      className="flex-1 px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+                    >
+                      Refresh Details
                     </button>
                   </div>
                 </div>
@@ -349,161 +524,207 @@ export function POIManagement() {
           </div>
         ) : (
           <div className="p-6">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-4 text-sm text-muted-foreground">POI Name</th>
-                    <th className="text-left py-3 px-4 text-sm text-muted-foreground">Category</th>
-                    <th className="text-left py-3 px-4 text-sm text-muted-foreground">Business Owner</th>
-                    <th className="text-left py-3 px-4 text-sm text-muted-foreground">Address</th>
-                    <th className="text-left py-3 px-4 text-sm text-muted-foreground">Status</th>
-                    <th className="text-left py-3 px-4 text-sm text-muted-foreground">Rating</th>
-                    <th className="text-left py-3 px-4 text-sm text-muted-foreground">Claims</th>
-                    <th className="text-right py-3 px-4 text-sm text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPOIs.map((poi) => (
-                    <tr key={poi.id} className="border-b border-border hover:bg-accent/50 transition-colors">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full ${categoryColors[poi.category]} flex items-center justify-center flex-shrink-0`}>
-                            <MapPin className="w-4 h-4 text-white" />
-                          </div>
-                          <div>
-                            <div className="font-medium flex items-center gap-2">
-                              {poi.name}
-                              {poi.verified && <CheckCircle className="w-4 h-4 text-green-600" />}
+            {filteredPOIs.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                No business POIs match your filters.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-3 px-4 text-sm text-muted-foreground">POI Name</th>
+                      <th className="text-left py-3 px-4 text-sm text-muted-foreground">Category</th>
+                      <th className="text-left py-3 px-4 text-sm text-muted-foreground">Business Owner</th>
+                      <th className="text-left py-3 px-4 text-sm text-muted-foreground">Address</th>
+                      <th className="text-left py-3 px-4 text-sm text-muted-foreground">Status</th>
+                      <th className="text-left py-3 px-4 text-sm text-muted-foreground">Claims</th>
+                      <th className="text-right py-3 px-4 text-sm text-muted-foreground">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPOIs.map((poi) => (
+                      <tr key={poi.id} className="border-b border-border hover:bg-accent/50 transition-colors">
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-8 h-8 rounded-full ${categoryColors[poi.category] ?? categoryColors.Other} flex items-center justify-center flex-shrink-0`}
+                            >
+                              <MapPin className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <div className="font-medium flex items-center gap-2">
+                                {poi.name}
+                                {poi.status === "Claimed" && (
+                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                )}
+                              </div>
+                              {poi.externalRef && (
+                                <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                  {poi.externalRef}
+                                </div>
+                              )}
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm">
-                          {poi.category}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        {poi.claimedBy ? (
-                          <div className="flex items-center gap-2">
-                            <Building2 className="w-4 h-4 text-purple-600" />
-                            <span className="text-sm">{poi.claimedBy}</span>
-                          </div>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">Unclaimed</span>
-                        )}
-                      </td>
-                      <td className="py-4 px-4 text-sm">{poi.address}</td>
-                      <td className="py-4 px-4">
-                        <span className={`px-3 py-1 rounded-full text-sm flex items-center gap-1 w-fit ${
-                          poi.status === "Approved"
-                            ? "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300"
-                            : poi.status === "Rejected"
-                            ? "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300"
-                            : "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300"
-                        }`}>
-                          {poi.status === "Approved" && <CheckCircle className="w-3 h-3" />}
-                          {poi.status === "Rejected" && <XCircle className="w-3 h-3" />}
-                          {poi.status === "Pending" && <Clock className="w-3 h-3" />}
-                          {poi.status}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2">
-                          <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                          <span>{poi.rating}</span>
-                          <span className="text-sm text-muted-foreground">({poi.reviews})</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        {poi.claims > 0 ? (
-                          <span className="px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 rounded-full text-sm">
-                            {poi.claims} pending
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm">
+                            {poi.category}
                           </span>
-                        ) : (
-                          <span className="text-muted-foreground">None</span>
-                        )}
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center justify-end gap-2">
-                          <button className="p-2 hover:bg-accent rounded-lg transition-colors">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button className="p-2 hover:bg-accent rounded-lg transition-colors">
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          {poi.claimedBy ? (
+                            <div className="flex items-center gap-2">
+                              <Building2 className="w-4 h-4 text-purple-600" />
+                              <span className="text-sm">{poi.claimedBy}</span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Unclaimed</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-4 text-sm">{poi.address}</td>
+                        <td className="py-4 px-4">
+                          <StatusBadge status={poi.status} pendingClaims={poi.pendingClaims ?? 0} />
+                        </td>
+                        <td className="py-4 px-4">
+                          {(poi.pendingClaims ?? 0) > 0 ? (
+                            <span className="px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 rounded-full text-sm">
+                              {poi.pendingClaims} pending
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">None</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEdit(poi)}
+                              className="p-2 hover:bg-accent rounded-lg transition-colors"
+                              title="Edit POI"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleSelectPOI(poi.id);
+                                setViewMode("map");
+                              }}
+                              className="p-2 hover:bg-accent rounded-lg transition-colors"
+                              title="View on map"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
-              <p className="text-sm text-muted-foreground">Showing {filteredPOIs.length} of {mockPOIs.length} POIs</p>
-              <div className="flex gap-2">
-                <button className="px-4 py-2 border border-border rounded-lg hover:bg-accent transition-colors">Previous</button>
-                <button className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">Next</button>
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Showing {filteredPOIs.length} of {poiRows.length} POIs
+              </p>
             </div>
           </div>
         )}
       </div>
 
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAddModal(false)}>
-          <div className="bg-card border border-border rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl mb-4">Add New POI</h3>
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={closeModal}
+        >
+          <div
+            className="bg-card border border-border rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl mb-4">{editingPOI ? "Edit POI" : "Add New POI"}</h3>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <label className="block text-sm mb-2">POI Name</label>
-                  <input type="text" className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring" placeholder="Enter POI name" />
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="Enter POI name"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm mb-2">Category</label>
-                  <select className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option>Restaurant</option>
-                    <option>Shop</option>
-                    <option>Entertainment</option>
-                    <option>Services</option>
-                    <option>Other</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm mb-2">Business Owner (Optional)</label>
-                  <select className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option>None (Public POI)</option>
-                    <option>Joe Smith - Joe's Coffee</option>
-                    <option>Sarah Johnson - TechMart</option>
-                    <option>Maria Lopez - Bella Restaurant</option>
+                  <select
+                    value={form.category}
+                    onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
+                    className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    {POI_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="col-span-2">
                   <label className="block text-sm mb-2">Address</label>
-                  <input type="text" className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring" placeholder="Enter full address" />
+                  <input
+                    type="text"
+                    value={form.address}
+                    onChange={(e) => setForm((prev) => ({ ...prev, address: e.target.value }))}
+                    className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="Enter full address"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm mb-2">Latitude</label>
-                  <input type="text" className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring" placeholder="40.7580" />
+                  <input
+                    type="text"
+                    value={form.latitude}
+                    onChange={(e) => setForm((prev) => ({ ...prev, latitude: e.target.value }))}
+                    className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="40.7580"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm mb-2">Longitude</label>
-                  <input type="text" className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring" placeholder="-73.9855" />
+                  <input
+                    type="text"
+                    value={form.longitude}
+                    onChange={(e) => setForm((prev) => ({ ...prev, longitude: e.target.value }))}
+                    className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="-73.9855"
+                  />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-sm mb-2">Description</label>
-                  <textarea className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring h-24" placeholder="Enter POI description..."></textarea>
+                  <textarea
+                    value={form.description}
+                    onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                    className="w-full px-4 py-2 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring h-24"
+                    placeholder="Enter POI description..."
+                  />
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
-                <button onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-2 border border-border rounded-lg hover:bg-accent transition-colors">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="flex-1 px-4 py-2 border border-border rounded-lg hover:bg-accent transition-colors"
+                >
                   Cancel
                 </button>
-                <button className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
-                  Add POI
+                <button
+                  type="button"
+                  disabled={actionBusy || !form.name.trim() || !form.address.trim()}
+                  onClick={() => void handleSavePOI()}
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60"
+                >
+                  {actionBusy ? "Saving..." : editingPOI ? "Save Changes" : "Add POI"}
                 </button>
               </div>
             </div>
@@ -511,5 +732,29 @@ export function POIManagement() {
         </div>
       )}
     </div>
+  );
+}
+
+function StatusBadge({ status, pendingClaims }: { status: PoiStatus; pendingClaims: number }) {
+  if (status === "Pending") {
+    return (
+      <span className="px-3 py-1 rounded-full text-sm flex items-center gap-1 w-fit bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+        <Clock className="w-3 h-3" />
+        Pending ({pendingClaims})
+      </span>
+    );
+  }
+  if (status === "Claimed") {
+    return (
+      <span className="px-3 py-1 rounded-full text-sm flex items-center gap-1 w-fit bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+        <CheckCircle className="w-3 h-3" />
+        Claimed
+      </span>
+    );
+  }
+  return (
+    <span className="px-3 py-1 rounded-full text-sm flex items-center gap-1 w-fit bg-secondary text-secondary-foreground">
+      Unclaimed
+    </span>
   );
 }

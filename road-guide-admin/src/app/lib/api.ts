@@ -161,3 +161,54 @@ export async function approvePanorama(mediaId: string) {
 export async function rejectPanorama(mediaId: string, adminNote: string) {
   await apiPost(`/panoramas/${mediaId}/reject`, { adminNote })
 }
+
+export async function getBusinessPoiDetail(token: string, poiId: string) {
+  return api<{ poi: BusinessPoi; media: { id: string; kind: string; status: string }[] }>(
+    `/business-pois/${poiId}`,
+    undefined,
+    token,
+  )
+}
+
+export async function updateBusinessPoi(
+  token: string,
+  poiId: string,
+  body: {
+    name: string
+    address: string
+    description?: string
+    metadata?: Record<string, unknown>
+  },
+) {
+  const result = await api<{ poi: BusinessPoi }>(
+    `/business-pois/${poiId}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    },
+    token,
+  )
+  return result.poi
+}
+
+export async function createBusinessPoi(
+  token: string,
+  body: {
+    name: string
+    address: string
+    description?: string
+    category?: string
+    latitude?: number
+    longitude?: number
+  },
+) {
+  const result = await api<{ poi: BusinessPoi }>(
+    '/admin/business-pois',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+    token,
+  )
+  return result.poi
+}

@@ -11,6 +11,16 @@ export type BusinessPoi = {
   id: string
   name: string
   address: string
+  description?: string
+  metadata?: Record<string, unknown>
+  externalRef?: string
+  latitude?: number
+  longitude?: number
+  createdAt?: string
+  updatedAt?: string
+  ownerId?: string
+  ownerName?: string
+  pendingClaims?: number
 }
 
 export type RegistrationRequest = {

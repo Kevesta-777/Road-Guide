@@ -160,6 +160,7 @@ func main() {
 				admin.Put("/users/{userID}/role", application.handleSetUserRole)
 				admin.Put("/users/{userID}/assignments", application.handleSetUserAssignments)
 				admin.Get("/business-pois", application.handleListBusinessPOIs)
+				admin.Post("/business-pois", application.handleCreateBusinessPOI)
 
 				admin.Get("/panoramas", application.handleListPanoramas)
 				admin.Post("/panoramas/{mediaID}/approve", application.handleApprovePanorama)
@@ -1257,8 +1258,20 @@ func (a *app) handleSetUserAssignments(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleListBusinessPOIs(w http.ResponseWriter, _ *http.Request) {
 	rows, err := a.query(
-		`SELECT id, name, address, description, metadata_json, created_at, updated_at
-		 FROM business_pois ORDER BY name ASC`,
+		`SELECT p.id, p.name, p.address, p.description, p.metadata_json,
+		        p.external_ref, p.latitude, p.longitude, p.created_at, p.updated_at,
+		        (SELECT u.id FROM business_user_pois bup
+		         JOIN users u ON u.id = bup.user_id
+		         WHERE bup.poi_id = p.id
+		         ORDER BY u.name LIMIT 1) AS owner_id,
+		        (SELECT u.name FROM business_user_pois bup
+		         JOIN users u ON u.id = bup.user_id
+		         WHERE bup.poi_id = p.id
+		         ORDER BY u.name LIMIT 1) AS owner_name,
+		        (SELECT COUNT(*)::int FROM business_registration_requests r
+		         WHERE r.poi_id = p.id AND r.status = 'pending') AS pending_claims
+		 FROM business_pois p
+		 ORDER BY p.name ASC`,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to list pois")
@@ -1268,22 +1281,95 @@ func (a *app) handleListBusinessPOIs(w http.ResponseWriter, _ *http.Request) {
 	pois := []map[string]any{}
 	for rows.Next() {
 		var id, name, address, description, metadataJSON string
+		var externalRef, ownerID, ownerName sql.NullString
+		var latitude, longitude sql.NullFloat64
+		var pendingClaims int
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&id, &name, &address, &description, &metadataJSON, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(
+			&id, &name, &address, &description, &metadataJSON,
+			&externalRef, &latitude, &longitude, &createdAt, &updatedAt,
+			&ownerID, &ownerName, &pendingClaims,
+		); err != nil {
 			writeErr(w, http.StatusInternalServerError, "failed to scan pois")
 			return
 		}
-		pois = append(pois, map[string]any{
-			"id":          id,
-			"name":        name,
-			"address":     address,
-			"description": description,
-			"metadata":    decodeMap(metadataJSON),
-			"createdAt":   createdAt,
-			"updatedAt":   updatedAt,
-		})
+		entry := map[string]any{
+			"id":            id,
+			"name":          name,
+			"address":       address,
+			"description":   description,
+			"metadata":      decodeMap(metadataJSON),
+			"createdAt":     createdAt,
+			"updatedAt":     updatedAt,
+			"pendingClaims": pendingClaims,
+		}
+		if externalRef.Valid {
+			entry["externalRef"] = externalRef.String
+		}
+		if latitude.Valid {
+			entry["latitude"] = latitude.Float64
+		}
+		if longitude.Valid {
+			entry["longitude"] = longitude.Float64
+		}
+		if ownerID.Valid {
+			entry["ownerId"] = ownerID.String
+		}
+		if ownerName.Valid {
+			entry["ownerName"] = ownerName.String
+		}
+		pois = append(pois, entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"pois": pois})
+}
+
+func (a *app) handleCreateBusinessPOI(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name        string   `json:"name"`
+		Address     string   `json:"address"`
+		Description string   `json:"description"`
+		Category    string   `json:"category"`
+		Latitude    *float64 `json:"latitude"`
+		Longitude   *float64 `json:"longitude"`
+		ExternalRef string   `json:"externalRef"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	address := strings.TrimSpace(body.Address)
+	if name == "" || address == "" {
+		writeErr(w, http.StatusBadRequest, "name and address are required")
+		return
+	}
+	externalRef := strings.TrimSpace(body.ExternalRef)
+	if externalRef == "" {
+		externalRef = "admin:" + uuid.NewString()
+	}
+	metadata := map[string]any{}
+	if category := strings.TrimSpace(body.Category); category != "" {
+		metadata["category"] = category
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	now := time.Now().UTC()
+	id := uuid.NewString()
+	_, err := a.exec(
+		`INSERT INTO business_pois(id, name, address, description, metadata_json, external_ref, latitude, longitude, created_at, updated_at)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, name, address, strings.TrimSpace(body.Description), string(metadataJSON),
+		externalRef, body.Latitude, body.Longitude, now, now,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to create poi")
+		return
+	}
+	poi, err := a.mustGetPOI(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to load created poi")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"poi": poi})
 }
 
 func (a *app) handleGetPlaceDetail(w http.ResponseWriter, r *http.Request) {

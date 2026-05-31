@@ -240,18 +240,25 @@ internal fun AppleMapsPlaceDetailSheetContent(
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
         ) {
+            Spacer(modifier = Modifier.height(16.dp))
             enriched?.description?.takeIf { it.isNotBlank() }?.let { aboutText ->
                 PlaceDetailSectionTitle(
                     title = stringResource(R.string.apple_place_about),
                     palette = palette,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = aboutText,
-                    color = palette.primaryText,
-                    fontSize = 16.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
+                PlaceDetailCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    palette = palette,
+                ) {
+                    Text(
+                        text = aboutText,
+                        color = palette.primaryText,
+                        fontSize = 16.sp,
+                    )
+                }
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
@@ -278,7 +285,6 @@ internal fun AppleMapsPlaceDetailSheetContent(
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
-
             PlaceDetailSectionTitle(
                 title = stringResource(R.string.apple_place_ratings_reviews),
                 palette = palette,
@@ -612,7 +618,7 @@ private fun PlaceDetailSectionTitle(
     Text(
         text = title,
         color = palette.primaryText,
-        fontSize = 20.sp,
+        fontSize = 22.sp,
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(horizontal = 16.dp),
     )

@@ -15,6 +15,14 @@ export default defineConfig({
       '/api': 'http://localhost:8090',
       '/uploads': 'http://localhost:8090',
       '/healthz': 'http://localhost:8090',
+      '/tileserver': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/areamap': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
 })

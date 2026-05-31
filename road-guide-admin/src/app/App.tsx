@@ -193,7 +193,15 @@ export default function App() {
       case 'payments':
         return <PaymentManagement />
       case 'pois':
-        return <POIManagement />
+        return (
+          <POIManagement
+            pois={pois}
+            pendingClaimCount={requests.length}
+            busy={busy}
+            token={token}
+            onRefresh={() => void refreshDashboard()}
+          />
+        )
       case 'image360':
         return <Image360Management />
       case 'companion':
