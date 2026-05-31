@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -34,6 +35,7 @@ internal fun AuthOverlayHost(
     val context = LocalContext.current
 
     var friendsRevision by remember { mutableIntStateOf(0) }
+    var signUpReturnToUserProfile by remember { mutableStateOf(false) }
 
     val friends = remember(friendsRevision) { OfflineFriendsStore.listFriends(context) }
 
@@ -86,29 +88,22 @@ internal fun AuthOverlayHost(
                 modifier = modifier,
 
                 onBack = {
-
-                    onNavigate(
-
-                        if (OfflineAuthStore.isSessionActive(context)) {
-
-                            AuthDestination.UserProfile
-
+                    if (OfflineAuthStore.isSessionActive(context)) {
+                        if (signUpReturnToUserProfile) {
+                            signUpReturnToUserProfile = false
+                            onNavigate(AuthDestination.UserProfile)
                         } else {
-
-                            AuthDestination.SignIn
-
-                        },
-
-                    )
-
+                            onDismiss()
+                        }
+                    } else {
+                        onNavigate(AuthDestination.SignIn)
+                    }
                 },
 
                 onSignedUp = {
-
+                    signUpReturnToUserProfile = false
                     onAuthChanged()
-
                     onDismiss()
-
                 },
 
             )
@@ -180,13 +175,8 @@ internal fun AuthOverlayHost(
                 onResetCredentials = { onNavigate(AuthDestination.ResetCredentials) },
 
                 onCreateNewAccount = {
-
-                    OfflineAuthStore.clearAccount(context)
-
-                    onAuthChanged()
-
+                    signUpReturnToUserProfile = true
                     onNavigate(AuthDestination.SignUp)
-
                 },
 
                 onSignOut = {

@@ -2,6 +2,7 @@ package com.example.roadguideapp.auth
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -66,11 +67,60 @@ internal fun ScanFriendQrScreen(
     }
     var pendingPayload by remember { mutableStateOf<FriendQrPayloadData?>(null) }
     var scanLocked by remember { mutableStateOf(false) }
+    var isProcessingImage by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         hasCameraPermission = granted
+    }
+
+    fun processDecodedQr(raw: String) {
+        if (scanLocked || isProcessingImage) return
+        val payload = FriendQrPayload.decode(raw)
+        if (payload == null) {
+            Toast.makeText(context, R.string.friends_error_invalid_qr, Toast.LENGTH_SHORT).show()
+            return
+        }
+        scanLocked = true
+        scope.launch {
+            val resolvedName = payload.displayName?.trim()?.takeIf { it.isNotEmpty() }
+                ?: when (
+                    val lookup = withContext(Dispatchers.IO) {
+                        OfflineFriendsStore.resolveProfile(context, payload.profileId)
+                    }
+                ) {
+                    is ResolveProfileResult.Success -> lookup.displayName
+                    is ResolveProfileResult.Failure -> {
+                        Toast.makeText(
+                            context,
+                            friendErrorMessage(context, lookup.error),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        scanLocked = false
+                        null
+                    }
+                }
+            if (resolvedName != null) {
+                pendingPayload = payload.copy(displayName = resolvedName)
+            }
+        }
+    }
+
+    val pickImageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri: Uri? ->
+        if (uri == null || scanLocked || isProcessingImage) return@rememberLauncherForActivityResult
+        isProcessingImage = true
+        scope.launch {
+            val raw = QrCodeImageDecoder.decodeFirstQrRaw(context, uri)
+            isProcessingImage = false
+            if (raw.isNullOrBlank()) {
+                Toast.makeText(context, R.string.friends_error_no_qr_in_image, Toast.LENGTH_SHORT).show()
+            } else {
+                processDecodedQr(raw)
+            }
+        }
     }
 
     pendingPayload?.let { payload ->
@@ -165,44 +215,10 @@ internal fun ScanFriendQrScreen(
                         .border(1.dp, sheetTheme.divider.copy(alpha = 0.5f), RoundedCornerShape(14.dp)),
                 ) {
                     QrCameraPreview(
-                    enabled = !scanLocked && pendingPayload == null,
-                    onQrDecoded = { raw ->
-                        mainExecutor.execute {
-                            if (scanLocked) return@execute
-                            val payload = FriendQrPayload.decode(raw)
-                            if (payload == null) {
-                                Toast.makeText(
-                                    context,
-                                    R.string.friends_error_invalid_qr,
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                                return@execute
-                            }
-                            scanLocked = true
-                            scope.launch {
-                                val resolvedName = payload.displayName?.trim()?.takeIf { it.isNotEmpty() }
-                                    ?: when (
-                                        val lookup = withContext(Dispatchers.IO) {
-                                            OfflineFriendsStore.resolveProfile(context, payload.profileId)
-                                        }
-                                    ) {
-                                        is ResolveProfileResult.Success -> lookup.displayName
-                                        is ResolveProfileResult.Failure -> {
-                                            Toast.makeText(
-                                                context,
-                                                friendErrorMessage(context, lookup.error),
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
-                                            scanLocked = false
-                                            null
-                                        }
-                                    }
-                                if (resolvedName != null) {
-                                    pendingPayload = payload.copy(displayName = resolvedName)
-                                }
-                            }
-                        }
-                    },
+                        enabled = !scanLocked && pendingPayload == null && !isProcessingImage,
+                        onQrDecoded = { raw ->
+                            mainExecutor.execute { processDecodedQr(raw) }
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -215,6 +231,28 @@ internal fun ScanFriendQrScreen(
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        AuthSecondaryButton(
+            text = stringResource(
+                if (isProcessingImage) {
+                    R.string.friends_upload_qr_image_processing
+                } else {
+                    R.string.friends_upload_qr_image
+                },
+            ),
+            onClick = { pickImageLauncher.launch("image/*") },
+            sheetTheme = sheetTheme,
+            enabled = !scanLocked && !isProcessingImage && pendingPayload == null,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.friends_upload_qr_image_hint),
+            color = sheetTheme.tertiaryText,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
     }
 }
 

@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,25 +25,28 @@ import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Directions
-import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.TurnRight
 import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -51,6 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.roadguideapp.R
+import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.google.gson.JsonObject
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.geojson.Feature
@@ -84,6 +92,9 @@ internal data class MapPlaceDetail(
     val phone: String?,
     val address: String,
     val latLng: LatLng,
+    val backendPoiId: String? = null,
+    val storedExternalRef: String? = null,
+    val isClaimEligible: Boolean = false,
 ) {
     companion object {
         fun fromRenderedFeatures(
@@ -113,14 +124,7 @@ internal data class MapPlaceDetail(
             val meta = PlaceMetadataResolver.fromJsonObject(properties)
             val website = properties.readString("website")
             val phone = properties.readString("phone")
-            val address = listOfNotNull(
-                properties.readString("addr:street"),
-                properties.readString("addr:housenumber"),
-                properties.readString("addr:city"),
-                properties.readString("addr:state"),
-                properties.readString("addr:postcode"),
-                properties.readString("addr:country"),
-            ).joinToString(", ").ifBlank { formatCoordinateAddress(latLng) }
+            val address = PlaceAddressResolver.formatFromOsmProperties(properties, anchor)
             val hoursSummary = meta.hoursSummary.ifBlank {
                 context.getString(R.string.apple_place_hours_unknown)
             }
@@ -135,6 +139,7 @@ internal data class MapPlaceDetail(
                 phone = phone,
                 address = address,
                 latLng = anchor,
+                isClaimEligible = PlaceClaimEligibility.fromOsmProperties(properties, category),
             )
         }
 
@@ -193,6 +198,29 @@ internal fun AppleMapsPlaceDetailSheetContent(
     val density = LocalDensity.current
     var stickyHeaderHeightPx by remember(place.id) { mutableIntStateOf(0) }
     val stickyHeaderHeight = with(density) { stickyHeaderHeightPx.toDp() }
+    var businessDetail by remember(place.id) { mutableStateOf<PlaceBusinessDetail?>(null) }
+
+    LaunchedEffect(place.id) {
+        businessDetail = when (
+            val result = withContext(Dispatchers.IO) {
+                PlaceDetailClient.fetch(place.businessPoiExternalRef())
+            }
+        ) {
+            is PlaceDetailClient.FetchResult.Success -> result.detail
+            is PlaceDetailClient.FetchResult.Failure -> null
+        }
+    }
+
+    val enriched = businessDetail?.takeIf { it.hasContent }
+    val displayHours = enriched?.metadata?.hours?.takeIf { it.isNotBlank() } ?: place.hoursSummary
+    val displayWebsite = enriched?.metadata?.website?.takeIf { it.isNotBlank() } ?: place.website
+    val displayPhone = enriched?.metadata?.phone?.takeIf { it.isNotBlank() } ?: place.phone
+    val displayAddress = enriched?.address?.takeIf { it.isNotBlank() } ?: place.address
+    val locationLabel = listOfNotNull(
+        enriched?.metadata?.city?.takeIf { it.isNotBlank() },
+        enriched?.metadata?.state?.takeIf { it.isNotBlank() },
+    ).joinToString(", ").ifBlank { place.locality }
+    val coordinatesLabel = "${place.latLng.latitude}, ${place.latLng.longitude}"
 
     Box(
         modifier = modifier
@@ -212,6 +240,85 @@ internal fun AppleMapsPlaceDetailSheetContent(
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
         ) {
+            enriched?.description?.takeIf { it.isNotBlank() }?.let { aboutText ->
+                PlaceDetailSectionTitle(
+                    title = stringResource(R.string.apple_place_about),
+                    palette = palette,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = aboutText,
+                    color = palette.primaryText,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            enriched?.photos?.takeIf { it.isNotEmpty() }?.let { photos ->
+                PlaceDetailSectionTitle(
+                    title = stringResource(R.string.apple_place_images),
+                    palette = palette,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(photos, key = { it.id }) { photo ->
+                        AsyncImage(
+                            model = photo.url,
+                            contentDescription = photo.caption,
+                            modifier = Modifier
+                                .size(width = 220.dp, height = 150.dp)
+                                .clip(RoundedCornerShape(14.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            PlaceDetailSectionTitle(
+                title = stringResource(R.string.apple_place_ratings_reviews),
+                palette = palette,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Star,
+                    contentDescription = null,
+                    tint = palette.accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = stringResource(
+                        R.string.apple_place_rating_average,
+                        PlaceDetailDummyReviews.averageRating,
+                    ),
+                    color = palette.primaryText,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(
+                    PlaceDetailDummyReviews.reviews,
+                    key = { "${it.authorName}:${it.text}" },
+                ) { review ->
+                    PlaceDetailReviewCard(review = review, palette = palette)
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
                 text = stringResource(R.string.apple_place_details),
                 color = palette.primaryText,
@@ -221,26 +328,25 @@ internal fun AppleMapsPlaceDetailSheetContent(
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            PlaceDetailHoursCard(
-                hoursSummary = place.hoursSummary,
+            PlaceDetailDetailsCard(
+                hoursSummary = displayHours,
                 isOpenNow = place.isOpenNow,
+                website = displayWebsite,
+                phone = displayPhone,
+                location = locationLabel,
+                coordinates = coordinatesLabel,
+                address = displayAddress,
                 palette = palette,
             )
-            Spacer(modifier = Modifier.height(12.dp))
 
-            PlaceDetailContactCard(
-                website = place.website,
-                phone = place.phone,
-                address = place.address,
-                palette = palette,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            PlaceDetailClaimCard(
-                palette = palette,
-                mode = claimButtonMode,
-                onClick = onClaimPlaceClick,
-            )
+            if (claimButtonMode != PlaceClaimButtonMode.Hidden) {
+                Spacer(modifier = Modifier.height(12.dp))
+                PlaceDetailClaimCard(
+                    palette = palette,
+                    mode = claimButtonMode,
+                    onClick = onClaimPlaceClick,
+                )
+            }
         }
 
         Column(
@@ -499,70 +605,64 @@ private fun PlaceDetailSecondaryAction(
 }
 
 @Composable
-private fun PlaceDetailHoursCard(
-    hoursSummary: String,
-    isOpenNow: Boolean,
+private fun PlaceDetailSectionTitle(
+    title: String,
+    palette: PlaceDetailPalette,
+) {
+    Text(
+        text = title,
+        color = palette.primaryText,
+        fontSize = 20.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(horizontal = 16.dp),
+    )
+}
+
+@Composable
+private fun PlaceDetailReviewCard(
+    review: PlaceReview,
     palette: PlaceDetailPalette,
 ) {
     PlaceDetailCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+        modifier = Modifier.width(260.dp),
         palette = palette,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.apple_place_hours),
-                    color = palette.secondaryText,
-                    fontSize = 13.sp,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = hoursSummary,
-                    color = palette.primaryText,
-                    fontSize = 17.sp,
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(
-                        if (isOpenNow) {
-                            R.string.apple_place_open_now
-                        } else {
-                            R.string.apple_place_closed_now
-                        },
-                    ),
-                    color = if (isOpenNow) {
-                        palette.accent
-                    } else {
-                        palette.closedStatus
-                    },
-                    fontSize = 15.sp,
-                )
-            }
-            IconButton(
-                onClick = {},
-                modifier = Modifier
-                    .size(36.dp)
-                    .appleMapsSheetInteractiveBlock(),
-            ) {
+        Text(
+            text = review.authorName.ifBlank { "Anonymous" },
+            color = palette.primaryText,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            repeat(review.rating.coerceIn(0, 5)) {
                 Icon(
-                    imageVector = Icons.Outlined.ExpandMore,
-                    contentDescription = stringResource(R.string.apple_place_expand_hours),
+                    imageVector = Icons.Outlined.Star,
+                    contentDescription = null,
                     tint = palette.accent,
+                    modifier = Modifier.size(14.dp),
                 )
             }
+        }
+        if (review.text.isNotBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = review.text,
+                color = palette.secondaryText,
+                fontSize = 15.sp,
+            )
         }
     }
 }
 
 @Composable
-private fun PlaceDetailContactCard(
+private fun PlaceDetailDetailsCard(
+    hoursSummary: String,
+    isOpenNow: Boolean,
     website: String?,
     phone: String?,
+    location: String,
+    coordinates: String,
     address: String,
     palette: PlaceDetailPalette,
 ) {
@@ -572,6 +672,25 @@ private fun PlaceDetailContactCard(
             .padding(horizontal = 16.dp),
         palette = palette,
     ) {
+        PlaceDetailLabeledValue(
+            label = stringResource(R.string.apple_place_hours),
+            value = hoursSummary,
+            valueColor = palette.primaryText,
+            labelColor = palette.secondaryText,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(
+                if (isOpenNow) {
+                    R.string.apple_place_open_now
+                } else {
+                    R.string.apple_place_closed_now
+                },
+            ),
+            color = if (isOpenNow) palette.accent else palette.closedStatus,
+            fontSize = 15.sp,
+        )
+        PlaceDetailDivider(palette = palette)
         if (!website.isNullOrBlank()) {
             PlaceDetailLabeledValue(
                 label = stringResource(R.string.apple_place_website),
@@ -581,6 +700,22 @@ private fun PlaceDetailContactCard(
             )
             PlaceDetailDivider(palette = palette)
         }
+        if (location.isNotBlank()) {
+            PlaceDetailLabeledValue(
+                label = stringResource(R.string.apple_place_location),
+                value = location,
+                valueColor = palette.primaryText,
+                labelColor = palette.secondaryText,
+            )
+            PlaceDetailDivider(palette = palette)
+        }
+        PlaceDetailLabeledValue(
+            label = stringResource(R.string.apple_place_coordinates),
+            value = coordinates,
+            valueColor = palette.primaryText,
+            labelColor = palette.secondaryText,
+        )
+        PlaceDetailDivider(palette = palette)
         if (!phone.isNullOrBlank()) {
             PlaceDetailLabeledValue(
                 label = stringResource(R.string.apple_place_phone),
@@ -629,6 +764,7 @@ private fun PlaceDetailClaimCard(
     onClick: () -> Unit,
 ) {
     val labelRes = when (mode) {
+        PlaceClaimButtonMode.Hidden -> R.string.apple_place_claim
         PlaceClaimButtonMode.Loading -> R.string.apple_place_claim
         PlaceClaimButtonMode.Claim -> R.string.apple_place_claim
         PlaceClaimButtonMode.BusinessEdit -> R.string.apple_place_business_edit

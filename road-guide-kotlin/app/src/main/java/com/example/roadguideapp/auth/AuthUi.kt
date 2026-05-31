@@ -287,9 +287,11 @@ internal fun AuthSecondaryButton(
     onClick: () -> Unit,
     sheetTheme: AppleMapsSheetTheme,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     OutlinedButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier.fillMaxWidth(),
     ) {
         Text(text = text, color = sheetTheme.primaryText, fontSize = 17.sp)

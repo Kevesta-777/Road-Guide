@@ -165,6 +165,16 @@ internal class AppleMapsSheetStackState(
         }
     }
 
+    fun updatePlaceDetail(placeId: String, place: MapPlaceDetail) {
+        layers = layers.map { layer ->
+            if (layer.sheet is AppleMapSheet.PlaceDetail && layer.sheet.place.id == placeId) {
+                layer.copy(sheet = AppleMapSheet.PlaceDetail(place))
+            } else {
+                layer
+            }
+        }
+    }
+
     fun updateDirections(
         origin: MapPlaceDetail,
         stops: List<MapPlaceDetail>,

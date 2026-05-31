@@ -95,6 +95,19 @@ internal object PeliasSearchClient {
         requestUrl(url, logQuery = "nearby-bounds:$cats")
     }
 
+    /**
+     * Reverse geocode a map coordinate into a Pelias address label.
+     */
+    suspend fun reverse(
+        point: LatLng,
+        size: Int = 1,
+    ): PeliasSearchResponse = withContext(Dispatchers.IO) {
+        val base = MapServerConfig.peliasApiBaseUrl
+        val url =
+            "$base/reverse?point.lat=${point.latitude}&point.lon=${point.longitude}&size=$size"
+        requestUrl(url, logQuery = "reverse:${point.latitude},${point.longitude}")
+    }
+
     private suspend fun searchEndpoint(
         path: String,
         text: String,

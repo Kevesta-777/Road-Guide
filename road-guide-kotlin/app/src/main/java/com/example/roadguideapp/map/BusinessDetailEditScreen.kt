@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Button
@@ -26,7 +30,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -37,6 +44,7 @@ import com.example.roadguideapp.panorama.PanoramaViewerActivity
 import com.example.roadguideapp.auth.AuthField
 import com.example.roadguideapp.auth.OfflineAuthStore
 import com.example.roadguideapp.auth.rememberAuthSheetTheme
+import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,6 +84,11 @@ internal fun BusinessDetailEditContent(
     var name by remember(poiId) { mutableStateOf("") }
     var address by remember(poiId) { mutableStateOf("") }
     var description by remember(poiId) { mutableStateOf("") }
+    var phone by remember(poiId) { mutableStateOf("") }
+    var website by remember(poiId) { mutableStateOf("") }
+    var hours by remember(poiId) { mutableStateOf("") }
+    var city by remember(poiId) { mutableStateOf("") }
+    var state by remember(poiId) { mutableStateOf("") }
     var media by remember(poiId) { mutableStateOf<List<BusinessPoiClient.PoiMedia>>(emptyList()) }
     var pendingUploadKind by remember { mutableStateOf<String?>(null) }
 
@@ -89,6 +102,11 @@ internal fun BusinessDetailEditContent(
                 name = result.poi.name
                 address = result.poi.address
                 description = result.poi.description
+                phone = result.poi.metadata.phone
+                website = result.poi.metadata.website
+                hours = result.poi.metadata.hours
+                city = result.poi.metadata.city
+                state = result.poi.metadata.state
                 media = result.media
             }
         }
@@ -176,17 +194,71 @@ internal fun BusinessDetailEditContent(
             textStyle = TextStyle(color = sheetTheme.searchFieldText),
         )
         Spacer(modifier = Modifier.height(20.dp))
+        Text(
+            text = stringResource(R.string.business_edit_contact_title),
+            fontWeight = FontWeight.SemiBold,
+            color = sheetTheme.primaryText,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        AuthField(
+            label = stringResource(R.string.business_edit_phone),
+            value = phone,
+            onValueChange = { phone = it },
+            placeholder = stringResource(R.string.business_edit_phone),
+            sheetTheme = sheetTheme,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        AuthField(
+            label = stringResource(R.string.business_edit_website),
+            value = website,
+            onValueChange = { website = it },
+            placeholder = stringResource(R.string.business_edit_website),
+            sheetTheme = sheetTheme,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        AuthField(
+            label = stringResource(R.string.business_edit_hours),
+            value = hours,
+            onValueChange = { hours = it },
+            placeholder = stringResource(R.string.business_edit_hours),
+            sheetTheme = sheetTheme,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        AuthField(
+            label = stringResource(R.string.business_edit_city),
+            value = city,
+            onValueChange = { city = it },
+            placeholder = stringResource(R.string.business_edit_city),
+            sheetTheme = sheetTheme,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        AuthField(
+            label = stringResource(R.string.business_edit_state),
+            value = state,
+            onValueChange = { state = it },
+            placeholder = stringResource(R.string.business_edit_state),
+            sheetTheme = sheetTheme,
+        )
+        Spacer(modifier = Modifier.height(20.dp))
         Button(
             onClick = {
                 val token = OfflineAuthStore.sessionToken(context) ?: return@Button
                 scope.launch {
                     saving = true
+                    val metadata = BusinessPoiMetadata(
+                        phone = phone.trim(),
+                        website = website.trim(),
+                        hours = hours.trim(),
+                        city = city.trim(),
+                        state = state.trim(),
+                    )
                     val result = withContext(Dispatchers.IO) {
                         BusinessPoiClient.updatePoi(
                             poiId = poiId,
                             name = name.trim(),
                             address = address.trim(),
                             description = description.trim(),
+                            metadata = metadata,
                             bearerToken = token,
                         )
                     }
@@ -209,7 +281,7 @@ internal fun BusinessDetailEditContent(
 
         Spacer(modifier = Modifier.height(28.dp))
         Text(
-            text = stringResource(R.string.business_edit_media_title),
+            text = stringResource(R.string.business_edit_photos_title),
             fontWeight = FontWeight.SemiBold,
             color = sheetTheme.primaryText,
         )
@@ -224,6 +296,69 @@ internal fun BusinessDetailEditContent(
             ) {
                 Text(text = stringResource(R.string.business_edit_upload_photo))
             }
+        }
+        val photos = media.filter { it.kind == "photo" }
+        if (photos.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(photos, key = { it.id }) { item ->
+                    Column {
+                        AsyncImage(
+                            model = item.url,
+                            contentDescription = item.caption,
+                            modifier = Modifier
+                                .size(width = 140.dp, height = 100.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedButton(
+                            enabled = !saving,
+                            onClick = {
+                                val token = OfflineAuthStore.sessionToken(context) ?: return@OutlinedButton
+                                scope.launch {
+                                    saving = true
+                                    val result = withContext(Dispatchers.IO) {
+                                        BusinessPoiClient.deleteMedia(poiId, item.id, token)
+                                    }
+                                    when (result) {
+                                        BusinessPoiClient.DeleteResult.Success -> {
+                                            reload()
+                                            Toast.makeText(
+                                                context,
+                                                R.string.business_edit_delete_success,
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                        is BusinessPoiClient.DeleteResult.Failure -> {
+                                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                    saving = false
+                                }
+                            },
+                        ) {
+                            Text(text = stringResource(R.string.business_edit_delete))
+                        }
+                    }
+                }
+            }
+        } else {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.business_edit_no_media),
+                color = sheetTheme.secondaryText,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+        Text(
+            text = stringResource(R.string.business_edit_panoramas_title),
+            fontWeight = FontWeight.SemiBold,
+            color = sheetTheme.primaryText,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
                 enabled = !saving,
                 onClick = {
@@ -236,13 +371,14 @@ internal fun BusinessDetailEditContent(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        if (media.isEmpty()) {
+        val panoramas = media.filter { it.kind == "panorama" }
+        if (panoramas.isEmpty()) {
             Text(
                 text = stringResource(R.string.business_edit_no_media),
                 color = sheetTheme.secondaryText,
             )
         } else {
-            media.forEach { item ->
+            panoramas.forEach { item ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -256,21 +392,19 @@ internal fun BusinessDetailEditContent(
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (item.kind == "panorama") {
-                            OutlinedButton(
-                                enabled = !saving,
-                                onClick = {
-                                    val imageUrl = BusinessPoiClient.resolveMediaUrl(item.url)
-                                    context.startActivity(
-                                        Intent(context, PanoramaViewerActivity::class.java).apply {
-                                            putExtra(PanoramaViewerActivity.EXTRA_IMAGE_URL, imageUrl)
-                                            putExtra(PanoramaViewerActivity.EXTRA_TITLE, name.trim().ifBlank { poiId })
-                                        },
-                                    )
-                                },
-                            ) {
-                                Text(text = stringResource(R.string.business_edit_view_panorama))
-                            }
+                        OutlinedButton(
+                            enabled = !saving,
+                            onClick = {
+                                val imageUrl = BusinessPoiClient.resolveMediaUrl(item.url)
+                                context.startActivity(
+                                    Intent(context, PanoramaViewerActivity::class.java).apply {
+                                        putExtra(PanoramaViewerActivity.EXTRA_IMAGE_URL, imageUrl)
+                                        putExtra(PanoramaViewerActivity.EXTRA_TITLE, name.trim().ifBlank { poiId })
+                                    },
+                                )
+                            },
+                        ) {
+                            Text(text = stringResource(R.string.business_edit_view_panorama))
                         }
                         OutlinedButton(
                             enabled = !saving,

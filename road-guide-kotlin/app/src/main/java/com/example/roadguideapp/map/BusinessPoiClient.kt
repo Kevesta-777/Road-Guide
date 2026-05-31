@@ -17,6 +17,7 @@ internal object BusinessPoiClient {
         val name: String,
         val address: String,
         val description: String,
+        val metadata: BusinessPoiMetadata = BusinessPoiMetadata(),
     )
 
     data class PoiMedia(
@@ -33,6 +34,7 @@ internal object BusinessPoiClient {
         val description: String,
         val latitude: Double?,
         val longitude: Double?,
+        val externalRef: String?,
     )
 
     sealed class ListMineResult {
@@ -85,6 +87,7 @@ internal object BusinessPoiClient {
                                 description = item.optString("description"),
                                 latitude = item.optDouble("latitude").takeIf { item.has("latitude") && !item.isNull("latitude") },
                                 longitude = item.optDouble("longitude").takeIf { item.has("longitude") && !item.isNull("longitude") },
+                                externalRef = item.optString("externalRef").takeIf { it.isNotBlank() },
                             ),
                         )
                     }
@@ -132,6 +135,7 @@ internal object BusinessPoiClient {
                         name = poiJson.optString("name"),
                         address = poiJson.optString("address"),
                         description = poiJson.optString("description"),
+                        metadata = BusinessPoiMetadata.fromJsonObject(poiJson.optJSONObject("metadata")),
                     ),
                     media = media,
                 )
@@ -146,13 +150,14 @@ internal object BusinessPoiClient {
         name: String,
         address: String,
         description: String,
+        metadata: BusinessPoiMetadata,
         bearerToken: String,
     ): SaveResult {
         val payload = JSONObject()
             .put("name", name)
             .put("address", address)
             .put("description", description)
-            .put("metadata", JSONObject())
+            .put("metadata", metadata.toJsonObject())
         val request = Request.Builder()
             .url("${baseUrl()}/api/v1/business-pois/$poiId")
             .header("Authorization", "Bearer $bearerToken")

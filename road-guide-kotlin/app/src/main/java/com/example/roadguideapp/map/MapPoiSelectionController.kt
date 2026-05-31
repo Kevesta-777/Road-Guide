@@ -163,7 +163,9 @@ internal object MapPoiSelectionController {
         for (layerId in layerIds) {
             val feats = map.queryRenderedFeatures(screenPoint, layerId)
             for (f in feats) {
-                val detail = MapPlaceDetail.fromMapFeature(context, f, clickLatLng) ?: continue
+                val detail = MapPlaceDetail.fromMapFeature(context, f, clickLatLng)
+                    ?.copy(isClaimEligible = true)
+                    ?: continue
                 return MapPlacePick(detail = detail, feature = f, templateLayerId = layerId)
             }
         }
@@ -192,7 +194,9 @@ internal object MapPoiSelectionController {
         for (layerId in enumeratePoiTemplateLayerIds(style)) {
             val feats = map.queryRenderedFeatures(box, layerId)
             for (feature in feats) {
-                val detail = MapPlaceDetail.fromMapFeature(context, feature, latLng) ?: continue
+                val detail = MapPlaceDetail.fromMapFeature(context, feature, latLng)
+                    ?.copy(isClaimEligible = true)
+                    ?: continue
                 return MapPlacePick(detail = detail, feature = feature, templateLayerId = layerId)
             }
         }

@@ -129,6 +129,7 @@ func main() {
 		api.Post("/auth/register", application.handleRegister)
 		api.Post("/auth/login", application.handleLogin)
 		api.Get("/places/panoramas", application.handleListPlacePanoramas)
+		api.Get("/places/detail", application.handleGetPlaceDetail)
 
 		api.Group(func(authed chi.Router) {
 			authed.Use(application.requireAuth)
@@ -563,6 +564,7 @@ func (a *app) handleCreateClaimRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleResolveBusinessPOI(w http.ResponseWriter, r *http.Request) {
+	u := userFromContext(r)
 	var body struct {
 		ExternalRef string   `json:"externalRef"`
 		Name        string   `json:"name"`
@@ -579,16 +581,38 @@ func (a *app) handleResolveBusinessPOI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "externalRef is required")
 		return
 	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = "Unnamed Place"
+	}
+	address := strings.TrimSpace(body.Address)
 
-	var existingID string
-	err := a.queryRow("SELECT id FROM business_pois WHERE external_ref = ?", externalRef).Scan(&existingID)
-	if err == nil {
-		poi, getErr := a.mustGetPOI(existingID)
+	respond := func(poiID string, created bool, status int) {
+		poi, getErr := a.mustGetPOI(poiID)
 		if getErr != nil {
 			writeErr(w, http.StatusInternalServerError, "failed to load poi")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"poi": poi, "created": false})
+		canEdit := false
+		if u.Role == roleBusiness {
+			owned, err := a.userOwnsPOI(u.ID, poiID)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, "failed to verify ownership")
+				return
+			}
+			canEdit = owned
+		}
+		writeJSON(w, status, map[string]any{
+			"poi":               poi,
+			"created":           created,
+			"canEditBusiness":   canEdit,
+		})
+	}
+
+	var existingID string
+	err := a.queryRow("SELECT id FROM business_pois WHERE external_ref = ?", externalRef).Scan(&existingID)
+	if err == nil {
+		respond(existingID, false, http.StatusOK)
 		return
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -596,11 +620,20 @@ func (a *app) handleResolveBusinessPOI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := strings.TrimSpace(body.Name)
-	if name == "" {
-		name = "Unnamed Place"
+	if u.Role == roleBusiness {
+		if ownedID, ok, findErr := a.findOwnedPOINearUser(u.ID, body.Latitude, body.Longitude, name); findErr != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to match assigned poi")
+			return
+		} else if ok {
+			_, _ = a.exec(
+				`UPDATE business_pois SET external_ref = ?, updated_at = ? WHERE id = ?`,
+				externalRef, time.Now().UTC(), ownedID,
+			)
+			respond(ownedID, false, http.StatusOK)
+			return
+		}
 	}
-	address := strings.TrimSpace(body.Address)
+
 	now := time.Now().UTC()
 	id := uuid.NewString()
 	_, err = a.exec(
@@ -615,18 +648,12 @@ func (a *app) handleResolveBusinessPOI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Re-read by external_ref in case a concurrent request created it first.
 	var resolvedID string
 	if err := a.queryRow("SELECT id FROM business_pois WHERE external_ref = ?", externalRef).Scan(&resolvedID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to resolve poi")
 		return
 	}
-	poi, getErr := a.mustGetPOI(resolvedID)
-	if getErr != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to load poi")
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"poi": poi, "created": resolvedID == id})
+	respond(resolvedID, resolvedID == id, http.StatusCreated)
 }
 
 func (a *app) handleListMyBusinessPOIs(w http.ResponseWriter, r *http.Request) {
@@ -1259,6 +1286,41 @@ func (a *app) handleListBusinessPOIs(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"pois": pois})
 }
 
+func (a *app) handleGetPlaceDetail(w http.ResponseWriter, r *http.Request) {
+	externalRef := strings.TrimSpace(r.URL.Query().Get("externalRef"))
+	if externalRef == "" {
+		writeErr(w, http.StatusBadRequest, "externalRef is required")
+		return
+	}
+
+	var poiID string
+	err := a.queryRow("SELECT id FROM business_pois WHERE external_ref = ?", externalRef).Scan(&poiID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusOK, map[string]any{"hasBusinessData": false})
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "failed to resolve place")
+		return
+	}
+
+	poi, err := a.mustGetPOI(poiID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to read business place")
+		return
+	}
+	photos, err := a.listApprovedPhotos(poiID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to list photos")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"hasBusinessData": true,
+		"poi":             poi,
+		"photos":          photos,
+	})
+}
+
 func (a *app) handleListPlacePanoramas(w http.ResponseWriter, r *http.Request) {
 	externalRef := strings.TrimSpace(r.URL.Query().Get("externalRef"))
 	if externalRef == "" {
@@ -1286,6 +1348,38 @@ func (a *app) handleListPlacePanoramas(w http.ResponseWriter, r *http.Request) {
 		"poiId":     poiID,
 		"panoramas": panoramas,
 	})
+}
+
+func (a *app) listApprovedPhotos(poiID string) ([]map[string]any, error) {
+	rows, err := a.query(
+		`SELECT id, url, caption, sort_order, created_at
+		 FROM poi_media
+		 WHERE poi_id = ? AND kind = 'photo' AND status = 'approved'
+		 ORDER BY sort_order, created_at`,
+		poiID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := []map[string]any{}
+	for rows.Next() {
+		var id, url, caption string
+		var sortOrder int
+		var createdAt time.Time
+		if err := rows.Scan(&id, &url, &caption, &sortOrder, &createdAt); err != nil {
+			return nil, err
+		}
+		result = append(result, map[string]any{
+			"id":        id,
+			"url":       url,
+			"caption":   caption,
+			"sortOrder": sortOrder,
+			"createdAt": createdAt,
+		})
+	}
+	return result, rows.Err()
 }
 
 func (a *app) listApprovedPanoramas(poiID string) ([]map[string]any, error) {
@@ -1542,6 +1636,56 @@ func (a *app) userOwnsPOI(userID, poiID string) (bool, error) {
 		userID, poiID,
 	).Scan(&count)
 	return count > 0, err
+}
+
+func (a *app) findOwnedPOINearUser(userID string, lat, lng *float64, name string) (string, bool, error) {
+	if lat == nil || lng == nil {
+		return "", false, nil
+	}
+	rows, err := a.query(
+		`SELECT bp.id, bp.name, bp.latitude, bp.longitude
+		 FROM business_user_pois bup
+		 JOIN business_pois bp ON bp.id = bup.poi_id
+		 WHERE bup.user_id = ?`,
+		userID,
+	)
+	if err != nil {
+		return "", false, err
+	}
+	defer rows.Close()
+
+	const tolerance = 0.0008
+	normalizedName := normalizePlaceName(name)
+	for rows.Next() {
+		var poiID, poiName string
+		var poiLat, poiLng sql.NullFloat64
+		if err := rows.Scan(&poiID, &poiName, &poiLat, &poiLng); err != nil {
+			return "", false, err
+		}
+		if !poiLat.Valid || !poiLng.Valid {
+			continue
+		}
+		if mathAbs(poiLat.Float64-*lat) > tolerance || mathAbs(poiLng.Float64-*lng) > tolerance {
+			continue
+		}
+		if normalizedName != "" && normalizePlaceName(poiName) != "" &&
+			normalizePlaceName(poiName) != normalizedName {
+			continue
+		}
+		return poiID, true, nil
+	}
+	return "", false, rows.Err()
+}
+
+func normalizePlaceName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func mathAbs(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func (a *app) canAccessPOI(u user, poiID string) (bool, error) {

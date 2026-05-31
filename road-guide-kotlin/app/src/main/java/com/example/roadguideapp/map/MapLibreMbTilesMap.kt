@@ -170,7 +170,6 @@ fun MapLibreMbTilesMap(
     var claimPoiId by remember { mutableStateOf<String?>(null) }
     var businessEditPoiId by remember { mutableStateOf<String?>(null) }
     var claimRequestInFlight by remember { mutableStateOf(false) }
-    val placeClaimButtonModes = remember { mutableStateMapOf<String, PlaceClaimButtonMode>() }
     val resolvedBackendPoiIds = remember { mutableStateMapOf<String, String>() }
 
     val activeDirections = sheetStack.activeDirections()
@@ -688,46 +687,27 @@ fun MapLibreMbTilesMap(
                                 } else {
                                     PlaceDetailPrimaryRouteAction.AddStop
                                 }
-                            val claimButtonMode = placeClaimButtonModes[place.id] ?: PlaceClaimButtonMode.Claim
+                            val claimKey = place.stableClaimKey()
+                            var claimButtonMode by remember(claimKey, place.isClaimEligible) {
+                                mutableStateOf(
+                                    when {
+                                        !place.isClaimEligible && place.backendPoiId.isNullOrBlank() ->
+                                            PlaceClaimButtonMode.Hidden
+                                        isLoggedIn -> PlaceClaimButtonMode.Loading
+                                        else -> PlaceClaimButtonMode.Claim
+                                    },
+                                )
+                            }
+                            var resolvedBackendPoiId by remember(claimKey) {
+                                mutableStateOf(place.backendPoiId)
+                            }
 
-                            LaunchedEffect(place.id, isLoggedIn, authRevision) {
-                                if (!isLoggedIn) {
-                                    placeClaimButtonModes[place.id] = PlaceClaimButtonMode.Claim
-                                    return@LaunchedEffect
-                                }
-                                val token = OfflineAuthStore.sessionToken(context) ?: return@LaunchedEffect
-                                placeClaimButtonModes[place.id] = PlaceClaimButtonMode.Loading
-                                val externalRef = place.businessPoiExternalRef()
-                                val resolveResult = withContext(Dispatchers.IO) {
-                                    BusinessClaimClient.resolvePoi(
-                                        externalRef = externalRef,
-                                        name = place.name,
-                                        address = place.address,
-                                        latitude = place.latLng.latitude,
-                                        longitude = place.latLng.longitude,
-                                        bearerToken = token,
-                                    )
-                                }
-                                val resolvedPoiId = when (resolveResult) {
-                                    is BusinessClaimClient.ResolveResult.Failure -> {
-                                        placeClaimButtonModes[place.id] = PlaceClaimButtonMode.Claim
-                                        return@LaunchedEffect
-                                    }
-                                    is BusinessClaimClient.ResolveResult.Success -> resolveResult.poiId
-                                }
-                                resolvedBackendPoiIds[place.id] = resolvedPoiId
-                                val statusResult = withContext(Dispatchers.IO) {
-                                    BusinessClaimClient.fetchClaimStatus(resolvedPoiId, token)
-                                }
-                                placeClaimButtonModes[place.id] = when (statusResult) {
-                                    is BusinessClaimClient.ClaimStatusResult.Success ->
-                                        if (statusResult.status.canEditBusiness) {
-                                            PlaceClaimButtonMode.BusinessEdit
-                                        } else {
-                                            PlaceClaimButtonMode.Claim
-                                        }
-                                    is BusinessClaimClient.ClaimStatusResult.Failure ->
-                                        PlaceClaimButtonMode.Claim
+                            LaunchedEffect(claimKey, place.isClaimEligible, place.backendPoiId, isLoggedIn, authRevision) {
+                                val resolution = PlaceClaimResolver.resolve(context, place, isLoggedIn)
+                                claimButtonMode = resolution.mode
+                                resolvedBackendPoiId = resolution.backendPoiId
+                                resolution.backendPoiId?.let { poiId ->
+                                    resolvedBackendPoiIds[claimKey] = poiId
                                 }
                             }
 
@@ -770,9 +750,10 @@ fun MapLibreMbTilesMap(
                                         return@AppleMapsPlaceDetailSheetContent
                                     }
                                     if (claimButtonMode == PlaceClaimButtonMode.BusinessEdit) {
-                                        val resolvedPoiId = resolvedBackendPoiIds[place.id]
-                                        if (resolvedPoiId != null) {
-                                            businessEditPoiId = resolvedPoiId
+                                        val poiId = resolvedBackendPoiId
+                                            ?: resolvedBackendPoiIds[claimKey]
+                                        if (poiId != null) {
+                                            businessEditPoiId = poiId
                                             return@AppleMapsPlaceDetailSheetContent
                                         }
                                     }
@@ -788,42 +769,48 @@ fun MapLibreMbTilesMap(
                                                 bearerToken = token,
                                             )
                                         }
-                                        val resolvedPoiId = when (resolveResult) {
+                                        when (val result = resolveResult) {
                                             is BusinessClaimClient.ResolveResult.Failure -> {
                                                 Toast.makeText(
                                                     context,
-                                                    resolveResult.message,
-                                                    Toast.LENGTH_LONG,
-                                                ).show()
-                                                return@launch
-                                            }
-                                            is BusinessClaimClient.ResolveResult.Success -> resolveResult.poiId
-                                        }
-                                        resolvedBackendPoiIds[place.id] = resolvedPoiId
-                                        val statusResult = withContext(Dispatchers.IO) {
-                                            BusinessClaimClient.fetchClaimStatus(resolvedPoiId, token)
-                                        }
-                                        when (statusResult) {
-                                            is BusinessClaimClient.ClaimStatusResult.Failure -> {
-                                                Toast.makeText(
-                                                    context,
-                                                    statusResult.message,
+                                                    result.message,
                                                     Toast.LENGTH_LONG,
                                                 ).show()
                                             }
-                                            is BusinessClaimClient.ClaimStatusResult.Success -> {
-                                                val status = statusResult.status
-                                                placeClaimButtonModes[place.id] =
-                                                    if (status.canEditBusiness) {
-                                                        PlaceClaimButtonMode.BusinessEdit
-                                                    } else {
-                                                        PlaceClaimButtonMode.Claim
+                                            is BusinessClaimClient.ResolveResult.Success -> {
+                                                resolvedBackendPoiIds[claimKey] = result.poiId
+                                                resolvedBackendPoiId = result.poiId
+                                                if (result.canEditBusiness) {
+                                                    claimButtonMode = PlaceClaimButtonMode.BusinessEdit
+                                                    businessEditPoiId = result.poiId
+                                                    return@launch
+                                                }
+                                                val statusResult = withContext(Dispatchers.IO) {
+                                                    BusinessClaimClient.fetchClaimStatus(result.poiId, token)
+                                                }
+                                                when (statusResult) {
+                                                    is BusinessClaimClient.ClaimStatusResult.Failure -> {
+                                                        Toast.makeText(
+                                                            context,
+                                                            statusResult.message,
+                                                            Toast.LENGTH_LONG,
+                                                        ).show()
                                                     }
-                                                if (status.canEditBusiness) {
-                                                    businessEditPoiId = resolvedPoiId
-                                                } else {
-                                                    claimPoiId = resolvedPoiId
-                                                    claimGuidance = status.registrationGuidance
+                                                    is BusinessClaimClient.ClaimStatusResult.Success -> {
+                                                        val status = statusResult.status
+                                                        claimButtonMode =
+                                                            if (status.canEditBusiness) {
+                                                                PlaceClaimButtonMode.BusinessEdit
+                                                            } else {
+                                                                PlaceClaimButtonMode.Claim
+                                                            }
+                                                        if (status.canEditBusiness) {
+                                                            businessEditPoiId = result.poiId
+                                                        } else {
+                                                            claimPoiId = result.poiId
+                                                            claimGuidance = status.registrationGuidance
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }

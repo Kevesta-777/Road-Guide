@@ -9,6 +9,8 @@ import androidx.compose.runtime.setValue
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -115,20 +117,22 @@ internal class MapScreenController(
     fun focusOwnedBusinessPoi(poi: BusinessPoiClient.MyBusinessPoi) {
         val lat = poi.latitude ?: return
         val lng = poi.longitude ?: return
-        focusPlaceOnMap(
-            MapPlaceDetail(
-                id = poi.id,
-                name = poi.name,
-                category = "",
-                locality = "",
-                hoursSummary = "",
-                isOpenNow = false,
-                website = null,
-                phone = null,
-                address = poi.address,
-                latLng = LatLng(lat, lng),
-            ),
+        val place = MapPlaceDetail(
+            id = poi.externalRef?.removePrefix("feature:")?.takeIf { it.isNotBlank() } ?: poi.id,
+            name = poi.name,
+            category = "",
+            locality = "",
+            hoursSummary = "",
+            isOpenNow = false,
+            website = null,
+            phone = null,
+            address = poi.address,
+            latLng = LatLng(lat, lng),
+            backendPoiId = poi.id,
+            storedExternalRef = poi.externalRef,
+            isClaimEligible = true,
         )
+        selectPlaceLikeMapTap(null, place)
     }
 
     private fun selectPlaceLikeMapTap(pick: MapPlacePick?, place: MapPlaceDetail) {
@@ -160,6 +164,22 @@ internal class MapScreenController(
             ),
             MapConstants.ZOOM_ANIMATION_MS,
         )
+        resolvePlaceAddressAsync(place)
+    }
+
+    private fun resolvePlaceAddressAsync(place: MapPlaceDetail) {
+        if (!PlaceAddressResolver.needsReverseGeocode(place.address)) return
+        scope.launch {
+            val enriched = withContext(Dispatchers.IO) {
+                PlaceAddressResolver.enrichPlace(context, place)
+            }
+            if (enriched.address == place.address && enriched.locality == place.locality) return@launch
+            val merged = enriched.copy(isClaimEligible = place.isClaimEligible || enriched.isClaimEligible)
+            if (selectedPlace?.id == place.id) {
+                selectedPlace = merged
+            }
+            sheetStack.updatePlaceDetail(place.id, merged)
+        }
     }
 
     /**
@@ -175,12 +195,18 @@ internal class MapScreenController(
             val resolved = MapPoiSelectionController.resolvePickNear(context, style, map, latLng)
                 ?: return@postDelayed
             lastMapPlacePick = resolved
-            selectedPlace = resolved.detail
+            val priorClaimEligible = selectedPlace?.isClaimEligible == true
+            val mergedDetail = resolved.detail.copy(
+                isClaimEligible = resolved.detail.isClaimEligible || priorClaimEligible,
+            )
+            selectedPlace = mergedDetail
+            sheetStack.updatePlaceDetail(expectedPlaceId, mergedDetail)
             MapPoiSelectionController.apply(
                 style,
                 resolved,
                 context.resources.displayMetrics.density,
             )
+            resolvePlaceAddressAsync(resolved.detail)
             mapOverlayCameraTick++
         }, MapConstants.ZOOM_ANIMATION_MS.toLong() + 80L)
     }
@@ -256,6 +282,7 @@ internal class MapScreenController(
             MapConstants.ZOOM_ANIMATION_MS,
         )
         scheduleResolveVectorPickAfterZoom(result.latLng, place.id)
+        resolvePlaceAddressAsync(place)
     }
 
     fun focusMapPlacePick(pick: MapPlacePick) {

@@ -7,6 +7,7 @@ import org.maplibre.android.geometry.LatLng
  * Stable key for linking a map place to a backend `business_pois.external_ref` row.
  */
 internal fun MapPlaceDetail.businessPoiExternalRef(): String {
+    storedExternalRef?.takeIf { it.isNotBlank() }?.let { return it }
     val featureId = id.trim()
     if (featureId.isNotBlank()) {
         return "feature:$featureId"

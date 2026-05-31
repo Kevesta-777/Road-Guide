@@ -35,7 +35,7 @@ internal object BusinessClaimClient {
     }
 
     sealed class ResolveResult {
-        data class Success(val poiId: String) : ResolveResult()
+        data class Success(val poiId: String, val canEditBusiness: Boolean = false) : ResolveResult()
         data class Failure(val message: String) : ResolveResult()
     }
 
@@ -73,7 +73,10 @@ internal object BusinessClaimClient {
                 if (poiId.isBlank()) {
                     ResolveResult.Failure("Backend did not return a place id.")
                 } else {
-                    ResolveResult.Success(poiId)
+                    ResolveResult.Success(
+                        poiId = poiId,
+                        canEditBusiness = body.optBoolean("canEditBusiness"),
+                    )
                 }
             }
         }.getOrElse {

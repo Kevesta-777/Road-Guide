@@ -31,6 +31,7 @@ internal data class PeliasSearchResult(
             phone = null,
             address = label,
             latLng = latLng,
+            isClaimEligible = PlaceClaimEligibility.fromPeliasLayer(layer),
         )
     }
 
