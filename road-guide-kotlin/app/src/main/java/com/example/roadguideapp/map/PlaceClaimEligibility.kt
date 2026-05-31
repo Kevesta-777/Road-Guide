@@ -34,6 +34,24 @@ internal object PlaceClaimEligibility {
     )
 
     /**
+     * Business map POIs render both a sprite icon and a name label on their symbol layer.
+     * Icon-only or label-only presentations are not claim targets.
+     */
+    fun hasBusinessPoiPresentation(hasSpriteIcon: Boolean, hasLabelText: Boolean): Boolean {
+        return hasSpriteIcon && hasLabelText
+    }
+
+    fun forMapSymbolPresentation(
+        hasSpriteIcon: Boolean,
+        hasLabelText: Boolean,
+        properties: JsonObject,
+        category: String,
+    ): Boolean {
+        if (!hasBusinessPoiPresentation(hasSpriteIcon, hasLabelText)) return false
+        return fromOsmProperties(properties, category)
+    }
+
+    /**
      * Map POI taps: allow claim by default unless the feature is clearly geographic
      * (city, river, street, etc.). Headway / OpenMapTiles often store the specific
      * business type in [class] (e.g. restaurant) rather than amenity/shop keys.

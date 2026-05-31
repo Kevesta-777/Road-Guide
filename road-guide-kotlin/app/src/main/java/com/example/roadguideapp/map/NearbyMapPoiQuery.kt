@@ -45,7 +45,7 @@ internal object NearbyMapPoiQuery {
             val features = map.queryRenderedFeatures(screenBox, layerId)
             for (feature in features) {
                 if (!NearbyCategorySearch.matchesMapFeature(category, feature)) continue
-                val pick = toPick(context, feature, center, layerId) ?: continue
+                val pick = toPick(context, style, feature, center, layerId) ?: continue
                 if (!seen.add(pick.detail.id)) continue
                 ranked.add(
                     Triple(
@@ -83,11 +83,18 @@ internal object NearbyMapPoiQuery {
 
     private fun toPick(
         context: Context,
+        style: Style,
         feature: Feature,
         fallback: LatLng,
         layerId: String,
     ): MapPlacePick? {
-        val detail = MapPlaceDetail.fromMapFeature(context, feature, fallback) ?: return null
+        val detail = MapPoiSelectionController.detailFromPoiTemplatePick(
+            context,
+            style,
+            layerId,
+            feature,
+            fallback,
+        ) ?: return null
         return MapPlacePick(detail = detail, feature = feature, templateLayerId = layerId)
     }
 }

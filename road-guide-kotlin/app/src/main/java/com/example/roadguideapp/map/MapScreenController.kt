@@ -336,7 +336,7 @@ internal class MapScreenController(
                 context,
                 map.queryRenderedFeatures(screenPoint),
                 latLng,
-            )
+            )?.copy(isClaimEligible = false)
             ?: return
 
         selectPlaceLikeMapTap(pick?.takeIf { it.detail == place }, place)

@@ -163,8 +163,7 @@ internal object MapPoiSelectionController {
         for (layerId in layerIds) {
             val feats = map.queryRenderedFeatures(screenPoint, layerId)
             for (f in feats) {
-                val detail = MapPlaceDetail.fromMapFeature(context, f, clickLatLng)
-                    ?.copy(isClaimEligible = true)
+                val detail = detailFromPoiTemplatePick(context, style, layerId, f, clickLatLng)
                     ?: continue
                 return MapPlacePick(detail = detail, feature = f, templateLayerId = layerId)
             }
@@ -194,13 +193,42 @@ internal object MapPoiSelectionController {
         for (layerId in enumeratePoiTemplateLayerIds(style)) {
             val feats = map.queryRenderedFeatures(box, layerId)
             for (feature in feats) {
-                val detail = MapPlaceDetail.fromMapFeature(context, feature, latLng)
-                    ?.copy(isClaimEligible = true)
+                val detail = detailFromPoiTemplatePick(context, style, layerId, feature, latLng)
                     ?: continue
                 return MapPlacePick(detail = detail, feature = feature, templateLayerId = layerId)
             }
         }
         return null
+    }
+
+    internal fun detailFromPoiTemplatePick(
+        context: Context,
+        style: Style,
+        templateLayerId: String,
+        feature: Feature,
+        latLng: LatLng,
+    ): MapPlaceDetail? {
+        val template = style.getLayer(templateLayerId) as? SymbolLayer ?: return null
+        val base = MapPlaceDetail.fromMapFeature(context, feature, latLng) ?: return null
+        val properties = feature.properties() ?: JsonObject()
+        return base.copy(
+            isClaimEligible = PlaceClaimEligibility.forMapSymbolPresentation(
+                hasSpriteIcon = symbolLayerHasSpriteIcon(template),
+                hasLabelText = symbolLayerHasLabelText(template),
+                properties = properties,
+                category = base.category,
+            ),
+        )
+    }
+
+    internal fun symbolLayerHasSpriteIcon(template: SymbolLayer): Boolean {
+        val iconImage = runCatching { template.iconImage }.getOrNull() ?: return false
+        return propertyValueToExpression(iconImage) != null
+    }
+
+    internal fun symbolLayerHasLabelText(template: SymbolLayer): Boolean {
+        val textField = runCatching { template.textField }.getOrNull() ?: return false
+        return propertyValueToExpression(textField) != null
     }
 
     /** Icon scale for category browse (many POIs on map at once). */
