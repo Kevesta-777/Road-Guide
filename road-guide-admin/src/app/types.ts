@@ -11,6 +11,7 @@ export type BusinessPoi = {
   id: string
   name: string
   address: string
+  category?: string
   description?: string
   metadata?: Record<string, unknown>
   externalRef?: string

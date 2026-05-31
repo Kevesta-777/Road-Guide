@@ -177,6 +177,7 @@ export async function updateBusinessPoi(
     name: string
     address: string
     description?: string
+    category?: string
     metadata?: Record<string, unknown>
   },
 ) {

@@ -47,6 +47,7 @@ internal object BusinessClaimClient {
         externalRef: String,
         name: String,
         address: String,
+        category: String,
         latitude: Double,
         longitude: Double,
         bearerToken: String,
@@ -55,6 +56,7 @@ internal object BusinessClaimClient {
             .put("externalRef", externalRef)
             .put("name", name)
             .put("address", address)
+            .put("category", category)
             .put("latitude", latitude)
             .put("longitude", longitude)
         val request = Request.Builder()

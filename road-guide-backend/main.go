@@ -224,6 +224,7 @@ func migrate(db *sql.DB) error {
 			name TEXT NOT NULL,
 			address TEXT NOT NULL,
 			description TEXT NOT NULL DEFAULT '',
+			category TEXT NOT NULL DEFAULT '',
 			metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL,
 			updated_at TIMESTAMPTZ NOT NULL
@@ -264,6 +265,10 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE business_pois ADD COLUMN IF NOT EXISTS external_ref TEXT;`,
 		`ALTER TABLE business_pois ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;`,
 		`ALTER TABLE business_pois ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;`,
+		`ALTER TABLE business_pois ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '';`,
+		`UPDATE business_pois
+		 SET category = TRIM(metadata_json->>'category')
+		 WHERE category = '' AND COALESCE(TRIM(metadata_json->>'category'), '') <> '';`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_pois_external_ref ON business_pois(external_ref) WHERE external_ref IS NOT NULL;`,
 		`CREATE INDEX IF NOT EXISTS idx_biz_req_user_status ON business_registration_requests(user_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_biz_req_poi_status ON business_registration_requests(poi_id, status);`,
@@ -330,20 +335,22 @@ func seedPOIs(db *sql.DB) error {
 	}
 	now := time.Now().UTC()
 	seedRows := []struct {
-		Name    string
-		Address string
+		Name     string
+		Address  string
+		Category string
 	}{
-		{Name: "Road Guide Cafe", Address: ""},
-		{Name: "p", Address: ""},
-		{Name: "Jeju View Hotel", Address: "999 Coastline Ave, Jeju"},
+		{Name: "Road Guide Cafe", Address: "", Category: "Restaurant"},
+		{Name: "p", Address: "", Category: "Other"},
+		{Name: "Jeju View Hotel", Address: "999 Coastline Ave, Jeju", Category: "Entertainment"},
 	}
 	for _, row := range seedRows {
+		metadataJSON, _ := json.Marshal(map[string]any{"category": row.Category})
 		_, err := db.Exec(
 			rebindPostgres(
-				`INSERT INTO business_pois(id, name, address, created_at, updated_at)
-			 VALUES(?, ?, ?, ?, ?)`,
+				`INSERT INTO business_pois(id, name, address, description, category, metadata_json, created_at, updated_at)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
 			),
-			uuid.NewString(), row.Name, row.Address, now, now,
+			uuid.NewString(), row.Name, row.Address, "", row.Category, string(metadataJSON), now, now,
 		)
 		if err != nil {
 			return err
@@ -570,6 +577,7 @@ func (a *app) handleResolveBusinessPOI(w http.ResponseWriter, r *http.Request) {
 		ExternalRef string   `json:"externalRef"`
 		Name        string   `json:"name"`
 		Address     string   `json:"address"`
+		Category    string   `json:"category"`
 		Latitude    *float64 `json:"latitude"`
 		Longitude   *float64 `json:"longitude"`
 	}
@@ -613,6 +621,10 @@ func (a *app) handleResolveBusinessPOI(w http.ResponseWriter, r *http.Request) {
 	var existingID string
 	err := a.queryRow("SELECT id FROM business_pois WHERE external_ref = ?", externalRef).Scan(&existingID)
 	if err == nil {
+		if mergeErr := a.mergePOICategoryIfEmpty(existingID, body.Category); mergeErr != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to update poi category")
+			return
+		}
 		respond(existingID, false, http.StatusOK)
 		return
 	}
@@ -637,11 +649,13 @@ func (a *app) handleResolveBusinessPOI(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	id := uuid.NewString()
+	category := normalizedCategory(body.Category)
+	metadataJSON, _ := json.Marshal(metadataWithCategory(nil, category))
 	_, err = a.exec(
-		`INSERT INTO business_pois(id, name, address, external_ref, latitude, longitude, created_at, updated_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO business_pois(id, name, address, description, category, metadata_json, external_ref, latitude, longitude, created_at, updated_at)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (external_ref) WHERE external_ref IS NOT NULL DO NOTHING`,
-		id, name, address, externalRef, body.Latitude, body.Longitude, now, now,
+		id, name, address, "", category, string(metadataJSON), externalRef, body.Latitude, body.Longitude, now, now,
 	)
 	if err != nil {
 		log.Printf("resolve poi insert failed: %v", err)
@@ -724,11 +738,22 @@ func (a *app) handleUpdateBusinessPOI(w http.ResponseWriter, r *http.Request) {
 		Name        string         `json:"name"`
 		Address     string         `json:"address"`
 		Description string         `json:"description"`
+		Category    string         `json:"category"`
 		Metadata    map[string]any `json:"metadata"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json body")
 		return
+	}
+	if body.Metadata == nil {
+		body.Metadata = map[string]any{}
+	}
+	category := normalizedCategory(body.Category)
+	if category == "" {
+		category = categoryFromMetadata(body.Metadata)
+	}
+	if category != "" {
+		body.Metadata["category"] = category
 	}
 	metadataJSON, _ := json.Marshal(body.Metadata)
 	if body.Name == "" || body.Address == "" {
@@ -737,9 +762,9 @@ func (a *app) handleUpdateBusinessPOI(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err := a.exec(
 		`UPDATE business_pois
-		 SET name = ?, address = ?, description = ?, metadata_json = ?, updated_at = ?
+		 SET name = ?, address = ?, description = ?, category = ?, metadata_json = ?, updated_at = ?
 		 WHERE id = ?`,
-		body.Name, body.Address, body.Description, string(metadataJSON), time.Now().UTC(), poiID,
+		body.Name, body.Address, body.Description, category, string(metadataJSON), time.Now().UTC(), poiID,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to update poi")
@@ -1258,7 +1283,7 @@ func (a *app) handleSetUserAssignments(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleListBusinessPOIs(w http.ResponseWriter, _ *http.Request) {
 	rows, err := a.query(
-		`SELECT p.id, p.name, p.address, p.description, p.metadata_json,
+		`SELECT p.id, p.name, p.address, p.description, p.category, p.metadata_json,
 		        p.external_ref, p.latitude, p.longitude, p.created_at, p.updated_at,
 		        (SELECT u.id FROM business_user_pois bup
 		         JOIN users u ON u.id = bup.user_id
@@ -1280,13 +1305,13 @@ func (a *app) handleListBusinessPOIs(w http.ResponseWriter, _ *http.Request) {
 	defer rows.Close()
 	pois := []map[string]any{}
 	for rows.Next() {
-		var id, name, address, description, metadataJSON string
+		var id, name, address, description, category, metadataJSON string
 		var externalRef, ownerID, ownerName sql.NullString
 		var latitude, longitude sql.NullFloat64
 		var pendingClaims int
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(
-			&id, &name, &address, &description, &metadataJSON,
+			&id, &name, &address, &description, &category, &metadataJSON,
 			&externalRef, &latitude, &longitude, &createdAt, &updatedAt,
 			&ownerID, &ownerName, &pendingClaims,
 		); err != nil {
@@ -1298,6 +1323,7 @@ func (a *app) handleListBusinessPOIs(w http.ResponseWriter, _ *http.Request) {
 			"name":          name,
 			"address":       address,
 			"description":   description,
+			"category":      normalizedCategory(category),
 			"metadata":      decodeMap(metadataJSON),
 			"createdAt":     createdAt,
 			"updatedAt":     updatedAt,
@@ -1318,7 +1344,7 @@ func (a *app) handleListBusinessPOIs(w http.ResponseWriter, _ *http.Request) {
 		if ownerName.Valid {
 			entry["ownerName"] = ownerName.String
 		}
-		pois = append(pois, entry)
+		pois = append(pois, withPOICategory(entry))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"pois": pois})
 }
@@ -1348,16 +1374,17 @@ func (a *app) handleCreateBusinessPOI(w http.ResponseWriter, r *http.Request) {
 		externalRef = "admin:" + uuid.NewString()
 	}
 	metadata := map[string]any{}
-	if category := strings.TrimSpace(body.Category); category != "" {
+	category := normalizedCategory(body.Category)
+	if category != "" {
 		metadata["category"] = category
 	}
 	metadataJSON, _ := json.Marshal(metadata)
 	now := time.Now().UTC()
 	id := uuid.NewString()
 	_, err := a.exec(
-		`INSERT INTO business_pois(id, name, address, description, metadata_json, external_ref, latitude, longitude, created_at, updated_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, name, address, strings.TrimSpace(body.Description), string(metadataJSON),
+		`INSERT INTO business_pois(id, name, address, description, category, metadata_json, external_ref, latitude, longitude, created_at, updated_at)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, name, address, strings.TrimSpace(body.Description), category, string(metadataJSON),
 		externalRef, body.Latitude, body.Longitude, now, now,
 	)
 	if err != nil {
@@ -1648,14 +1675,14 @@ func (a *app) saveUpload(file multipart.File, header *multipart.FileHeader) (str
 }
 
 func (a *app) mustGetPOI(poiID string) (map[string]any, error) {
-	var id, name, address, description, metadataJSON, externalRef sql.NullString
+	var id, name, address, description, category, metadataJSON, externalRef sql.NullString
 	var latitude, longitude sql.NullFloat64
 	var createdAt, updatedAt time.Time
 	err := a.queryRow(
-		`SELECT id, name, address, description, metadata_json, external_ref, latitude, longitude, created_at, updated_at
+		`SELECT id, name, address, description, category, metadata_json, external_ref, latitude, longitude, created_at, updated_at
 		 FROM business_pois WHERE id = ?`,
 		poiID,
-	).Scan(&id, &name, &address, &description, &metadataJSON, &externalRef, &latitude, &longitude, &createdAt, &updatedAt)
+	).Scan(&id, &name, &address, &description, &category, &metadataJSON, &externalRef, &latitude, &longitude, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1664,6 +1691,7 @@ func (a *app) mustGetPOI(poiID string) (map[string]any, error) {
 		"name":        name.String,
 		"address":     address.String,
 		"description": description.String,
+		"category":    normalizedCategory(category.String),
 		"metadata":    decodeMap(metadataJSON.String),
 		"createdAt":   createdAt,
 		"updatedAt":   updatedAt,
@@ -1677,7 +1705,7 @@ func (a *app) mustGetPOI(poiID string) (map[string]any, error) {
 	if longitude.Valid {
 		result["longitude"] = longitude.Float64
 	}
-	return result, nil
+	return withPOICategory(result), nil
 }
 
 func (a *app) listPOIMedia(poiID string) ([]map[string]any, error) {
@@ -1933,6 +1961,64 @@ func decodeMap(raw string) map[string]any {
 	}
 	_ = json.Unmarshal([]byte(raw), &out)
 	return out
+}
+
+func normalizedCategory(raw string) string {
+	return strings.TrimSpace(raw)
+}
+
+func categoryFromMetadata(metadata map[string]any) string {
+	if metadata == nil {
+		return ""
+	}
+	raw, _ := metadata["category"].(string)
+	return normalizedCategory(raw)
+}
+
+func metadataWithCategory(existing map[string]any, category string) map[string]any {
+	meta := existing
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	if category = normalizedCategory(category); category != "" {
+		meta["category"] = category
+	}
+	return meta
+}
+
+func withPOICategory(poi map[string]any) map[string]any {
+	if cat, ok := poi["category"].(string); ok && normalizedCategory(cat) != "" {
+		poi["category"] = normalizedCategory(cat)
+		return poi
+	}
+	metadata, _ := poi["metadata"].(map[string]any)
+	poi["category"] = categoryFromMetadata(metadata)
+	return poi
+}
+
+func (a *app) mergePOICategoryIfEmpty(poiID, category string) error {
+	category = normalizedCategory(category)
+	if category == "" {
+		return nil
+	}
+	var existingCategory, metadataJSON string
+	if err := a.queryRow(
+		`SELECT category, metadata_json FROM business_pois WHERE id = ?`,
+		poiID,
+	).Scan(&existingCategory, &metadataJSON); err != nil {
+		return err
+	}
+	if normalizedCategory(existingCategory) != "" {
+		return nil
+	}
+	meta := decodeMap(metadataJSON)
+	meta["category"] = category
+	encoded, _ := json.Marshal(meta)
+	_, err := a.exec(
+		`UPDATE business_pois SET category = ?, metadata_json = ?, updated_at = ? WHERE id = ?`,
+		category, string(encoded), time.Now().UTC(), poiID,
+	)
+	return err
 }
 
 func uniqueStrings(items []string) []string {

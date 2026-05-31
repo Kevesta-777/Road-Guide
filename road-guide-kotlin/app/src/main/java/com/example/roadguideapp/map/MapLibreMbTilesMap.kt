@@ -764,6 +764,7 @@ fun MapLibreMbTilesMap(
                                                 externalRef = externalRef,
                                                 name = place.name,
                                                 address = place.address,
+                                                category = place.category,
                                                 latitude = place.latLng.latitude,
                                                 longitude = place.latLng.longitude,
                                                 bearerToken = token,

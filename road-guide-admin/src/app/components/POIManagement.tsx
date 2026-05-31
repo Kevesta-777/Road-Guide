@@ -50,9 +50,38 @@ const categoryColors: Record<string, string> = {
 
 const POI_CATEGORIES = ["Restaurant", "Shop", "Entertainment", "Services", "Other"];
 
+const OSM_TO_ADMIN_CATEGORY: Record<string, string> = {
+  restaurant: "Restaurant",
+  cafe: "Restaurant",
+  bar: "Restaurant",
+  fast_food: "Restaurant",
+  food: "Restaurant",
+  shop: "Shop",
+  supermarket: "Shop",
+  mall: "Shop",
+  convenience: "Shop",
+  cinema: "Entertainment",
+  theatre: "Entertainment",
+  hotel: "Entertainment",
+  museum: "Entertainment",
+  fuel: "Services",
+  car_repair: "Services",
+  bank: "Services",
+};
+
+function normalizeCategoryLabel(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "Other";
+  const mapped = OSM_TO_ADMIN_CATEGORY[trimmed.toLowerCase()];
+  if (mapped) return mapped;
+  if (POI_CATEGORIES.includes(trimmed)) return trimmed;
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).replace(/_/g, " ");
+}
+
 function poiCategory(poi: BusinessPoi): string {
+  if (poi.category?.trim()) return normalizeCategoryLabel(poi.category);
   const raw = poi.metadata?.category;
-  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (typeof raw === "string" && raw.trim()) return normalizeCategoryLabel(raw);
   return "Other";
 }
 
@@ -213,6 +242,7 @@ export function POIManagement({
           name: form.name.trim(),
           address: form.address.trim(),
           description: form.description.trim(),
+          category: form.category,
           metadata: { ...editingPOI.metadata, ...metadata },
         });
         setActionMessage("POI updated.");
