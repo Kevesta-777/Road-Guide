@@ -263,6 +263,7 @@
     <!-- Directions (routing) modal -->
     <string name="apple_directions_title">Directions</string>
     <string name="apple_directions_from_label">From</string>
+    <string name="apple_directions_to_label">To</string>
     <string name="apple_directions_add_stop">Add Stop</string>
     <string name="apple_cancel">Cancel</string>
     <string name="apple_add_stop_search_hint">Search for a place</string>
@@ -275,4 +276,29 @@
     <string name="apple_directions_summary_subtitle_placeholder">ETA and distance when routing is available</string>
     <string name="apple_directions_stop_one">1 stop</string>
     <string name="apple_directions_stop_many">%d stops</string>
+    <string name="directions_offline_import_title">Offline routing</string>
+    <string name="directions_offline_import_message">Copy the graph-cache folder from prepare_graph.ps1 onto your phone, then tap Import and select that graph-cache folder (not a parent folder). ZIP import is optional.</string>
+    <string name="directions_offline_import_action_folder">Import graph folder</string>
+    <string name="directions_offline_import_action_zip">Import ZIP instead</string>
+    <string name="directions_offline_import_copying_folder">Copying graph folder…</string>
+    <string name="directions_offline_import_in_progress">Importing graph…</string>
+    <string name="directions_offline_import_extracting">Extracting graph ZIP…</string>
+    <string name="directions_offline_import_loading_engine">Loading GraphHopper engine…</string>
+    <string name="directions_offline_import_percent">(%1$d%%)</string>
+    <string name="directions_offline_import_elapsed">Elapsed: %1$ds</string>
+    <string name="directions_offline_import_restoring">Loading saved offline graph…</string>
+    <string name="directions_offline_import_timeout_hint">Large graphs can take a long time. Start with Monaco if import is slow.</string>
+    <string name="directions_offline_import_success">Graph imported. Calculating route…</string>
+    <string name="directions_offline_import_failed">Graph import failed: %1$s</string>
+    <string name="directions_routing_unavailable">Routing server unavailable. Import a graph ZIP or connect to the network.</string>
+    <string name="directions_route_failed">Could not calculate a route for these points.</string>
+    <string name="directions_offline_route_failed">Could not route on the offline map. Make sure your stops are inside the imported map area.</string>
+    <string name="directions_route_calculating">Calculating…</string>
+    <string name="directions_route_calculating_subtitle">Finding the best route on the road network</string>
+    <string name="directions_route_refining_subtitle">Snapping route to roads…</string>
+    <string name="directions_route_minutes">%1$d min</string>
+    <string name="directions_route_distance_km">%1$.1f km · %2$s</string>
+    <string name="directions_route_source_valhalla">Online</string>
+    <string name="directions_route_source_offline">Offline graph</string>
+    <string name="directions_route_source_preview">Estimating route…</string>
 </resources>

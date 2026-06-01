@@ -191,6 +191,24 @@ android {
         }
     }
 
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/LICENSE.md",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/NOTICE.md",
+                "META-INF/AL2.0",
+                "META-INF/LGPL2.1",
+                "META-INF/*.kotlin_module",
+                "META-INF/INDEX.LIST",
+                "META-INF/versions/**",
+            )
+        }
+    }
 }
 
 val overviewPmtilesSource = rootProject.file("GreaterLondon.pmtiles")
@@ -249,6 +267,13 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+
+    implementation(libs.graphhopper.core) {
+        // Janino needs javax.lang.model.SourceVersion; Android has no JDK compiler API.
+        // Stub: app/src/main/java/javax/lang/model/SourceVersion.java
+        exclude(group = "org.codehaus.janino", module = "janino")
+    }
+    implementation(libs.androidx.documentfile)
     implementation(libs.coil.compose)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

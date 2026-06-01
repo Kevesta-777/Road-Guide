@@ -2,6 +2,7 @@ package com.example.roadguideapp.map
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -58,6 +59,9 @@ import com.example.roadguideapp.auth.OfflineAuthStore
 import com.example.roadguideapp.auth.OfflineFriendsStore
 import com.example.roadguideapp.auth.UserProfileSheetContent
 import com.example.roadguideapp.auth.identifierAbbreviation
+import com.example.roadguideapp.offlinegraph.OfflineGraphEngine
+import com.example.roadguideapp.offlinegraph.toDisplayString
+import com.example.roadguideapp.offlinegraph.userMessage
 import dev.chrisbanes.haze.ExperimentalHazeApi
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -171,6 +175,17 @@ fun MapLibreMbTilesMap(
     var businessEditPoiId by remember { mutableStateOf<String?>(null) }
     var claimRequestInFlight by remember { mutableStateOf(false) }
     val resolvedBackendPoiIds = remember { mutableStateMapOf<String, String>() }
+    var routePlanTick by remember { mutableIntStateOf(0) }
+    var showOfflineGraphImportAlert by remember { mutableStateOf(false) }
+    var graphImportInProgress by remember { mutableStateOf(false) }
+    var graphRestoreInProgress by remember { mutableStateOf(false) }
+    var graphImportStatusMessage by remember { mutableStateOf("") }
+    var graphImportProgressPercent by remember { mutableStateOf<Int?>(null) }
+    var offlineGraphLoaded by remember { mutableStateOf(false) }
+    var activeRouteResult by remember { mutableStateOf<DirectionsRouteResult?>(null) }
+    var activeRouteSource by remember { mutableStateOf<DirectionsRouteSource?>(null) }
+    var isRouteCalculating by remember { mutableStateOf(false) }
+    var isRouteRefining by remember { mutableStateOf(false) }
 
     val activeDirections = sheetStack.activeDirections()
     val activeDirectionsState = rememberUpdatedState(activeDirections)
@@ -205,6 +220,143 @@ fun MapLibreMbTilesMap(
                 controller.mapLibreMap,
                 locationFallbackLatLng,
             )
+        }
+    }
+
+    fun persistGraphUri(uri: android.net.Uri) {
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        } catch (_: SecurityException) {
+            // Some providers do not allow persistable permissions.
+        }
+    }
+
+    fun runOfflineGraphImport(
+        initialStatusRes: Int,
+        import: suspend () -> Result<String>,
+    ) {
+        coroutineScope.launch {
+            graphImportInProgress = true
+            graphImportProgressPercent = null
+            showOfflineGraphImportAlert = false
+            graphImportStatusMessage = context.getString(initialStatusRes)
+            mapViewRef.value?.onPause()
+            val importResult = withContext(Dispatchers.IO) {
+                runCatching { import().getOrThrow() }
+            }
+            mapViewRef.value?.onResume()
+            graphImportInProgress = false
+            graphImportStatusMessage = ""
+            graphImportProgressPercent = null
+            importResult.fold(
+                onSuccess = {
+                    offlineGraphLoaded = OfflineGraphEngine.isLoaded()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.directions_offline_import_success),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    if (activeDirections != null && OfflineGraphEngine.isLoaded()) {
+                        routePlanTick++
+                        coroutineScope.launch {
+                            kotlinx.coroutines.delay(400)
+                            if (OfflineGraphEngine.isLoaded() && activeDirections != null) {
+                                routePlanTick++
+                            }
+                        }
+                    } else {
+                        routePlanTick++
+                    }
+                },
+                onFailure = { error ->
+                    Toast.makeText(
+                        context,
+                        context.getString(
+                            R.string.directions_offline_import_failed,
+                            error.userMessage(),
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+            )
+        }
+    }
+
+    val graphFolderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) {
+            graphImportInProgress = false
+            return@rememberLauncherForActivityResult
+        }
+        persistGraphUri(uri)
+        runOfflineGraphImport(R.string.directions_offline_import_copying_folder) {
+            OfflineGraphEngine.importGraphFolder(
+                context = context,
+                resolver = context.contentResolver,
+                folderTreeUri = uri,
+            ) { progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    graphImportStatusMessage = progress.toDisplayString(context)
+                    graphImportProgressPercent = progress.percent
+                }
+            }
+        }
+    }
+
+    val graphZipPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) {
+            graphImportInProgress = false
+            return@rememberLauncherForActivityResult
+        }
+        persistGraphUri(uri)
+        runOfflineGraphImport(R.string.directions_offline_import_extracting) {
+            OfflineGraphEngine.importGraphZip(
+                context = context,
+                resolver = context.contentResolver,
+                zipUri = uri,
+            ) { progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    graphImportStatusMessage = progress.toDisplayString(context)
+                    graphImportProgressPercent = progress.percent
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(offlineGraphLoaded) {
+        if (OfflineGraphEngine.isLoaded()) {
+            offlineGraphLoaded = true
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!DirectionsRoutingService.hasSavedGraph(context)) return@LaunchedEffect
+        if (OfflineGraphEngine.isLoaded()) {
+            offlineGraphLoaded = true
+            return@LaunchedEffect
+        }
+        graphRestoreInProgress = true
+        graphImportStatusMessage = context.getString(R.string.directions_offline_import_restoring)
+        val loaded = withContext(Dispatchers.IO) {
+            DirectionsRoutingService.awaitOfflineGraphReady(context) { progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    graphImportStatusMessage = progress.toDisplayString(context)
+                    graphImportProgressPercent = progress.percent
+                }
+            }
+        }
+        graphRestoreInProgress = false
+        graphImportStatusMessage = ""
+        graphImportProgressPercent = null
+        offlineGraphLoaded = loaded
+        if (loaded && activeDirections != null) {
+            routePlanTick++
         }
     }
 
@@ -310,49 +462,167 @@ fun MapLibreMbTilesMap(
 
     LaunchedEffect(
         controller.mapRuntime,
+        activeRouteResult,
+        activeDirections?.tripWaypoints?.map { it.id },
+    ) {
+        val runtime = controller.mapRuntime ?: return@LaunchedEffect
+        val (_, style) = runtime
+        val directions = activeDirections ?: return@LaunchedEffect
+        val route = activeRouteResult ?: return@LaunchedEffect
+        if (route.geometry.size < 2) return@LaunchedEffect
+        val mv = mapViewRef.value
+        val tripOrigin = directions.tripWaypoints.first()
+        val tripStops = directions.tripWaypoints.drop(1)
+        val redraw = Runnable {
+            DirectionsRouteOverlay.sync(
+                style = style,
+                origin = tripOrigin,
+                stops = tripStops,
+                valhallaRoute = route,
+                revealProgress = 1f,
+            )
+            controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+        }
+        if (mv != null) mv.post(redraw) else redraw.run()
+    }
+
+    LaunchedEffect(
+        controller.mapRuntime,
         activeDirections?.origin?.id,
         activeDirections?.stops?.map { it.id },
+        activeDirections?.tripWaypoints?.map { it.id },
         activeDirections?.travelMode,
         bottomChromePadding,
+        routePlanTick,
+        offlineGraphLoaded,
+        graphImportInProgress,
+        graphRestoreInProgress,
     ) {
+        if (graphImportInProgress || graphRestoreInProgress) return@LaunchedEffect
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
         val (map, style) = runtime
         val mv = mapViewRef.value
         val directions = activeDirections
         if (directions == null) {
+            activeRouteResult = null
+            activeRouteSource = null
+            isRouteCalculating = false
+            isRouteRefining = false
             val clear = { DirectionsRouteOverlay.remove(style) }
             if (mv != null) mv.post(clear) else clear()
             return@LaunchedEffect
         }
-        val waypoints = listOf(directions.origin.latLng) + directions.stops.map { it.latLng }
-        if (waypoints.size < 2) {
+        if (directions.tripWaypoints.size < 2) {
+            activeRouteResult = null
+            activeRouteSource = null
+            isRouteCalculating = false
+            isRouteRefining = false
             val clear = { DirectionsRouteOverlay.remove(style) }
             if (mv != null) mv.post(clear) else clear()
             return@LaunchedEffect
         }
 
         delay(DirectionsRouteAnimation.FETCH_DEBOUNCE_MS)
+        isRouteCalculating = true
+        isRouteRefining = DirectionsRoutingService.hasSavedGraph(context) &&
+            !OfflineGraphEngine.isLoaded()
 
-        val valhallaRoute = ValhallaRouteClient.fetchRoute(waypoints, directions.travelMode)
-        val fullGeometry = valhallaRoute?.geometry?.takeIf { it.size >= 2 }
-            ?: DirectionsPathOptimizer.buildPolyline(waypoints, segmentsPerLeg = 26)
-        val fitPoints = buildList {
-            addAll(waypoints)
-            addAll(fullGeometry)
+        val planOutcome = withContext(Dispatchers.IO) {
+            DirectionsRoutingService.planDirectionsRoute(
+                context = context,
+                origin = directions.origin,
+                stops = directions.stops,
+                mode = directions.travelMode,
+                tripWaypoints = directions.tripWaypoints,
+            ) { progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    if (!OfflineGraphEngine.isLoaded()) {
+                        graphRestoreInProgress = true
+                        graphImportStatusMessage = progress.toDisplayString(context)
+                        graphImportProgressPercent = progress.percent
+                    }
+                }
+            }
         }
-        val routeBounds = DirectionsRouteGeometry.boundsFor(fitPoints)
+
+        graphRestoreInProgress = false
+        graphImportStatusMessage = ""
+        graphImportProgressPercent = null
+        isRouteCalculating = false
+        isRouteRefining = false
+
+        val useFullTrip = directions.tripWaypoints.size >= 2
+        val displayStops = if (
+            !useFullTrip &&
+            planOutcome.optimizedStops.map { it.id } != directions.stops.map { it.id }
+        ) {
+            sheetStack.updateDirections(
+                directions.origin,
+                planOutcome.optimizedStops,
+                travelMode = directions.travelMode,
+            )
+            planOutcome.optimizedStops
+        } else {
+            directions.stops
+        }
+
+        val route = planOutcome.result
+        if (route == null || route.geometry.size < 2) {
+            activeRouteResult = null
+            activeRouteSource = null
+            val clear = { DirectionsRouteOverlay.remove(style) }
+            if (mv != null) mv.post(clear) else clear()
+            if (routePlanTick > 0) {
+                val message = when {
+                    DirectionsRoutingService.hasSavedGraph(context) &&
+                        OfflineGraphEngine.isLoaded() ->
+                        context.getString(R.string.directions_offline_route_failed)
+                    planOutcome.source == DirectionsRouteSource.Unavailable ->
+                        context.getString(R.string.directions_routing_unavailable)
+                    else -> context.getString(R.string.directions_route_failed)
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+            return@LaunchedEffect
+        }
+
+        activeRouteResult = route
+        activeRouteSource = planOutcome.source
+        offlineGraphLoaded = OfflineGraphEngine.isLoaded()
 
         val bottomPaddingPx = with(density) { bottomChromePaddingState.value.roundToPx() }
+
+        val tripOrigin = directions.tripWaypoints.first()
+        val tripStops = directions.tripWaypoints.drop(1)
 
         fun applyFrame(progress: Float) {
             DirectionsRouteOverlay.sync(
                 style = style,
-                origin = directions.origin,
-                stops = directions.stops,
-                valhallaRoute = valhallaRoute,
+                origin = tripOrigin,
+                stops = tripStops,
+                valhallaRoute = route,
                 revealProgress = progress,
             )
-            controller.mapOverlayCameraTick++
+            controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+        }
+
+        // Draw full route immediately so it stays visible if reveal animation is interrupted.
+        val showFullRoute = Runnable { applyFrame(1f) }
+        if (mv != null) {
+            mv.post(showFullRoute)
+        } else {
+            showFullRoute.run()
+        }
+
+        val fitPoints = buildList {
+            addAll(directions.tripWaypoints.map { it.latLng })
+            addAll(route.geometry)
+        }
+        val routeBounds = DirectionsRouteGeometry.boundsFor(fitPoints)
+
+        val revealDuration = when (planOutcome.source) {
+            DirectionsRouteSource.Preview -> DirectionsRouteAnimation.REFINE_REVEAL_DURATION_MS
+            else -> DirectionsRouteAnimation.REVEAL_DURATION_MS
         }
 
         coroutineScope {
@@ -370,7 +640,7 @@ fun MapLibreMbTilesMap(
                 }
             }
             launch {
-                DirectionsRouteAnimation.animateReveal { progress ->
+                DirectionsRouteAnimation.animateReveal(durationMs = revealDuration) { progress ->
                     val frame = { applyFrame(progress) }
                     if (mv != null) mv.post(frame) else frame()
                 }
@@ -681,8 +951,13 @@ fun MapLibreMbTilesMap(
                         is AppleMapSheet.PlaceDetail -> {
                             val place = sheet.place
                             val directions = activeDirections
+                            val currentDestinationId = directions?.destination?.id
                             val primaryRouteAction =
-                                if (directions == null || place.id == directions.origin.id) {
+                                if (
+                                    directions == null ||
+                                    place.id == directions.origin.id ||
+                                    place.id == currentDestinationId
+                                ) {
                                     PlaceDetailPrimaryRouteAction.Directions
                                 } else {
                                     PlaceDetailPrimaryRouteAction.AddStop
@@ -730,12 +1005,20 @@ fun MapLibreMbTilesMap(
                                             AppleMapSheet.Directions(place, emptyList()),
                                         )
                                     } else {
+                                        val rotated = dirs.withRotatedDestination(place)
                                         sheetStack.updateDirections(
-                                            dirs.origin,
-                                            dirs.stops + place,
+                                            rotated.origin,
+                                            rotated.stops,
+                                            travelMode = dirs.travelMode,
+                                            tripWaypoints = rotated.tripWaypoints,
                                         )
-                                        if (index == stackLayers.lastIndex) {
-                                            sheetStack.pop()
+                                        sheetStack.popAddStopOverlays()
+                                        coroutineScope.launch {
+                                            if (DirectionsRoutingService.canRoute(context)) {
+                                                routePlanTick++
+                                            } else {
+                                                showOfflineGraphImportAlert = true
+                                            }
                                         }
                                     }
                                 },
@@ -865,6 +1148,7 @@ fun MapLibreMbTilesMap(
                             AppleMapsDirectionsPanel(
                                 origin = sheet.origin,
                                 stops = sheet.stops,
+                                tripLegCount = (sheet.tripWaypoints.size - 1).coerceAtLeast(0),
                                 travelMode = sheet.travelMode,
                                 onTravelModeChange = { mode ->
                                     sheetStack.updateDirections(
@@ -872,6 +1156,7 @@ fun MapLibreMbTilesMap(
                                         sheet.stops,
                                         travelMode = mode,
                                     )
+                                    routePlanTick++
                                 },
                                 sheetGestures = sheetGestures,
                                 sheetTheme = sheetTheme,
@@ -883,6 +1168,16 @@ fun MapLibreMbTilesMap(
                                 onDismiss = {
                                     sheetStack.removeDirectionsAndAddStop()
                                     controller.selectedPlace = sheetStack.topPlaceDetail()?.place
+                                    activeRouteResult = null
+                                    activeRouteSource = null
+                                },
+                                routeResult = activeRouteResult,
+                                routeSource = activeRouteSource,
+                                isRouteCalculating = isRouteCalculating,
+                                isRouteRefining = isRouteRefining,
+                                offlineGraphLoaded = offlineGraphLoaded,
+                                onImportGraphClick = {
+                                    showOfflineGraphImportAlert = true
                                 },
                                 modifier = sheetModifier.fillMaxWidth(),
                             )
@@ -1077,6 +1372,41 @@ fun MapLibreMbTilesMap(
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(60f),
+            )
+        }
+
+        OfflineGraphImportProgressOverlay(
+            visible = graphImportInProgress || graphRestoreInProgress,
+            statusMessage = graphImportStatusMessage.ifBlank {
+                stringResource(
+                    if (graphRestoreInProgress) {
+                        R.string.directions_offline_import_restoring
+                    } else {
+                        R.string.directions_offline_import_in_progress
+                    },
+                )
+            },
+            progressPercent = graphImportProgressPercent,
+        )
+
+        if (showOfflineGraphImportAlert) {
+            OfflineGraphImportAlertDialog(
+                onDismiss = { showOfflineGraphImportAlert = false },
+                onImportFolderClick = {
+                    graphImportInProgress = true
+                    graphFolderPicker.launch(null)
+                },
+                onImportZipClick = {
+                    graphImportInProgress = true
+                    graphZipPicker.launch(
+                        arrayOf(
+                            "application/zip",
+                            "application/x-zip-compressed",
+                            "*/*",
+                        ),
+                    )
+                },
+                isImporting = graphImportInProgress,
             )
         }
 

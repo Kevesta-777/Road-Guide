@@ -69,6 +69,14 @@ internal fun AppleMapsDirectionsPanel(
     contentScrollEnabled: Boolean,
     onAddStopRowClick: () -> Unit,
     onDismiss: () -> Unit,
+    routeResult: DirectionsRouteResult? = null,
+    routeSource: DirectionsRouteSource? = null,
+    isRouteCalculating: Boolean = false,
+    isRouteRefining: Boolean = false,
+    offlineGraphLoaded: Boolean = false,
+    /** Legs in the full trip (for cumulative ETA / distance on the map route). */
+    tripLegCount: Int = 0,
+    onImportGraphClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val travelModeIndex = DirectionsTravelMode.chipIndex(travelMode)
@@ -215,6 +223,7 @@ internal fun AppleMapsDirectionsPanel(
                     allLegs.forEachIndexed { index, leg ->
                         DirectionsStopRow(
                             place = leg,
+                            isDestination = index == allLegs.lastIndex && index > 0,
                             showLineAbove = index > 0,
                             showLineBelow = index < allLegs.lastIndex,
                             lineColor = lineColor,
@@ -251,15 +260,38 @@ internal fun AppleMapsDirectionsPanel(
                     )
                 }
 
-                if (stops.isNotEmpty()) {
+                if (tripLegCount > 0) {
                     DirectionsSummaryCard(
-                        stopCount = stops.size,
+                        stopCount = tripLegCount,
+                        routeResult = routeResult,
+                        routeSource = routeSource,
+                        isCalculating = isRouteCalculating,
+                        isRefining = isRouteRefining,
                         summaryBackground = sheetTheme.summaryCardBackground,
                         onAccent = sheetTheme.onAccent,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
                     )
+                }
+
+                if (!offlineGraphLoaded && onImportGraphClick != null) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onImportGraphClick),
+                        color = sheetTheme.cardElevatedSecondary,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.directions_offline_import_message),
+                            color = accent,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
                 }
             }
         }
@@ -303,6 +335,7 @@ private fun TravelModeChip(
 @Composable
 private fun DirectionsStopRow(
     place: MapPlaceDetail,
+    isDestination: Boolean,
     showLineAbove: Boolean,
     showLineBelow: Boolean,
     lineColor: Color,
@@ -356,6 +389,14 @@ private fun DirectionsStopRow(
                     fontWeight = FontWeight.Medium,
                 )
                 Spacer(modifier = Modifier.height(2.dp))
+            } else if (isDestination) {
+                Text(
+                    text = stringResource(R.string.apple_directions_to_label),
+                    color = accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
             }
             Text(
                 text = place.name,
@@ -364,7 +405,7 @@ private fun DirectionsStopRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!isFirst) {
+            if (!isFirst && !isDestination) {
                 Text(
                     text = place.category,
                     color = muted,
@@ -480,6 +521,10 @@ private fun PillChip(
 @Composable
 private fun DirectionsSummaryCard(
     stopCount: Int,
+    routeResult: DirectionsRouteResult?,
+    routeSource: DirectionsRouteSource?,
+    isCalculating: Boolean,
+    isRefining: Boolean,
     summaryBackground: Color,
     onAccent: Color,
     modifier: Modifier = Modifier,
@@ -488,6 +533,29 @@ private fun DirectionsSummaryCard(
         stringResource(R.string.apple_directions_stop_one)
     } else {
         stringResource(R.string.apple_directions_stop_many, stopCount)
+    }
+    val timeLabel = when {
+        isCalculating -> stringResource(R.string.directions_route_calculating)
+        routeResult != null -> {
+            val minutes = (routeResult.totalDurationSeconds / 60.0).toInt().coerceAtLeast(1)
+            stringResource(R.string.directions_route_minutes, minutes)
+        }
+        else -> stringResource(R.string.apple_directions_summary_time_placeholder)
+    }
+    val subtitle = when {
+        isCalculating -> stringResource(R.string.directions_route_calculating_subtitle)
+        isRefining -> stringResource(R.string.directions_route_refining_subtitle)
+        routeResult != null -> {
+            val km = routeResult.totalLengthKm
+            val sourceLabel = when (routeSource) {
+                DirectionsRouteSource.Valhalla -> stringResource(R.string.directions_route_source_valhalla)
+                DirectionsRouteSource.OfflineGraph -> stringResource(R.string.directions_route_source_offline)
+                DirectionsRouteSource.Preview -> stringResource(R.string.directions_route_source_preview)
+                else -> ""
+            }
+            stringResource(R.string.directions_route_distance_km, km, sourceLabel)
+        }
+        else -> stringResource(R.string.apple_directions_summary_subtitle_placeholder)
     }
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -503,14 +571,14 @@ private fun DirectionsSummaryCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(R.string.apple_directions_summary_time_placeholder),
+                    text = timeLabel,
                     color = onAccent,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = stringResource(R.string.apple_directions_summary_subtitle_placeholder),
+                    text = subtitle,
                     color = onAccent.copy(alpha = 0.9f),
                     fontSize = 15.sp,
                 )

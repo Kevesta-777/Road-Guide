@@ -30,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -303,6 +304,60 @@ internal fun AppleMapsMyLocationModal(
             }
         }
     }
+}
+
+@Composable
+internal fun OfflineGraphImportAlertDialog(
+    onDismiss: () -> Unit,
+    onImportFolderClick: () -> Unit,
+    onImportZipClick: () -> Unit,
+    isImporting: Boolean,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!isImporting) onDismiss() },
+        title = {
+            Text(stringResource(R.string.directions_offline_import_title))
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.directions_offline_import_message))
+                if (isImporting) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            strokeWidth = 3.dp,
+                        )
+                        Text(stringResource(R.string.directions_offline_import_in_progress))
+                    }
+                } else {
+                    TextButton(
+                        onClick = onImportZipClick,
+                    ) {
+                        Text(stringResource(R.string.directions_offline_import_action_zip))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onImportFolderClick,
+                enabled = !isImporting,
+            ) {
+                Text(stringResource(R.string.directions_offline_import_action_folder))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isImporting,
+            ) {
+                Text(stringResource(R.string.apple_cancel))
+            }
+        },
+    )
 }
 
 @Composable

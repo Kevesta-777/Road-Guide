@@ -136,12 +136,13 @@ internal object DirectionsRouteOverlay {
             )
             .withFilter(Expression.has("label"))
 
+        val anchorLayerId = routeAnchorLayerId(style)
         try {
             style.addSource(lineSource)
             style.addSource(pointsSource)
-            style.addLayer(casingLayer)
-            style.addLayer(lineLayer)
-            style.addLayer(labelLayer)
+            addRouteLayer(style, casingLayer, anchorLayerId)
+            addRouteLayer(style, lineLayer, LINE_CASING_LAYER)
+            addRouteLayer(style, labelLayer, LINE_LAYER)
         } catch (_: Exception) {
             runCatching {
                 style.addSource(lineSource)
@@ -150,6 +151,30 @@ internal object DirectionsRouteOverlay {
                 style.addLayer(lineLayer)
                 style.addLayer(labelLayer)
             }
+        }
+    }
+
+    private fun routeAnchorLayerId(style: Style): String? {
+        val candidates = listOf(
+            AppMapStyle.BUILDING_3D_LAYER_ID,
+            AppMapStyle.BUILDING_LAYER_ID,
+        )
+        return candidates.firstOrNull { style.getLayer(it) != null }
+    }
+
+    private fun addRouteLayer(style: Style, layer: LineLayer, aboveLayerId: String?) {
+        if (aboveLayerId != null && style.getLayer(aboveLayerId) != null) {
+            style.addLayerAbove(layer, aboveLayerId)
+        } else {
+            style.addLayer(layer)
+        }
+    }
+
+    private fun addRouteLayer(style: Style, layer: SymbolLayer, aboveLayerId: String?) {
+        if (aboveLayerId != null && style.getLayer(aboveLayerId) != null) {
+            style.addLayerAbove(layer, aboveLayerId)
+        } else {
+            style.addLayer(layer)
         }
     }
 
