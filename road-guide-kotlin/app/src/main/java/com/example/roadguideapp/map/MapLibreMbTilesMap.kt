@@ -320,6 +320,7 @@ fun MapLibreMbTilesMap(
         val mv = mapViewRef.value
         val directions = activeDirections
         if (directions == null) {
+            controller.activeRouteGeometry = null
             val clear = { DirectionsRouteOverlay.remove(style) }
             if (mv != null) mv.post(clear) else clear()
             return@LaunchedEffect
@@ -336,6 +337,15 @@ fun MapLibreMbTilesMap(
         val valhallaRoute = ValhallaRouteClient.fetchRoute(waypoints, directions.travelMode)
         val fullGeometry = valhallaRoute?.geometry?.takeIf { it.size >= 2 }
             ?: DirectionsPathOptimizer.buildPolyline(waypoints, segmentsPerLeg = 26)
+        controller.activeRouteGeometry = fullGeometry.takeIf { it.size >= 2 }
+        if (controller.activeNearbyCategory != null &&
+            controller.nearbySearchContext is NearbySearchContext.AlongRoute &&
+            controller.activeRouteGeometry != null
+        ) {
+            controller.applyNearbySearchContext(
+                NearbySearchContext.AlongRoute(controller.activeRouteGeometry!!),
+            )
+        }
         val fitPoints = buildList {
             addAll(waypoints)
             addAll(fullGeometry)
@@ -642,6 +652,9 @@ fun MapLibreMbTilesMap(
                                 nearbyAvailableChains = filteredNearby.availableChains,
                                 nearbyPickHoursByGid = nearbyPickHoursByGid,
                                 onNearbyFilterChange = { controller.updateNearbyFilter(it) },
+                                nearbyScopeOptions = controller.buildNearbyScopeOptions(),
+                                nearbySearchContext = controller.nearbySearchContext,
+                                onNearbySearchContextChange = { controller.applyNearbySearchContext(it) },
                                 onNearbyBrowseDone = { controller.exitNearbyBrowse() },
                                 onNearbyPlaceSelected = { controller.openNearbyPlace(it) },
                                 onSearchClear = { controller.clearSearchQueryOnly() },

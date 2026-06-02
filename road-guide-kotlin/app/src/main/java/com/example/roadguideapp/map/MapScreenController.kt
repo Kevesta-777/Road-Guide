@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -55,6 +56,8 @@ internal class MapScreenController(
     var isSearchActive by mutableStateOf(false)
 
     var activeNearbyCategory by mutableStateOf<AppleNearbyShortcut?>(null)
+    var nearbySearchContext by mutableStateOf<NearbySearchContext>(NearbySearchContext.MapCenter)
+    var activeRouteGeometry by mutableStateOf<List<LatLng>?>(null)
     var nearbyMapResults by mutableStateOf<List<PeliasSearchResult>>(emptyList())
     var nearbyMapPicks by mutableStateOf<List<MapPlacePick>>(emptyList())
     var nearbyBrowseLoading by mutableStateOf(false)
@@ -77,6 +80,7 @@ internal class MapScreenController(
 
     fun exitNearbyBrowse() {
         activeNearbyCategory = null
+        nearbySearchContext = NearbySearchContext.MapCenter
         nearbyMapResults = emptyList()
         nearbyMapPicks = emptyList()
         nearbyBrowseLoading = false
@@ -369,22 +373,88 @@ internal class MapScreenController(
         )
     }
 
-    fun startNearbyCategoryBrowse(shortcut: AppleNearbyShortcut) {
-        scope.launch {
-            val map = mapLibreMap ?: return@launch
-            val mapView = mapView ?: return@launch
-            val style = mapRuntime?.second
+    fun resolveDefaultNearbySearchContext(): NearbySearchContext {
+        val mapCenter = mapLibreMap?.cameraPosition?.target
+        return NearbySearchContext.resolveDefault(
+            mapCenter = mapCenter ?: LatLng(0.0, 0.0),
+            selectedPlace = selectedPlace ?: placeDetailForNearbyScope(),
+            routeGeometry = activeRouteGeometry,
+            hasActiveDirections = sheetStack.activeDirections() != null,
+        )
+    }
 
+    fun buildNearbyScopeOptions(): List<NearbyScopeOption> {
+        val placeContext = resolvePlaceContextForNearby()
+        val routeGeometry = activeRouteGeometry
+        val routeContext =
+            if (sheetStack.activeDirections() != null && routeGeometry != null && routeGeometry.size >= 2) {
+                NearbySearchContext.AlongRoute(routeGeometry)
+            } else {
+                null
+            }
+        return nearbyScopeOptions(
+            mapCenterLabel = context.getString(com.example.roadguideapp.R.string.apple_nearby_scope_map_center),
+            placeFallbackLabel = context.getString(com.example.roadguideapp.R.string.apple_nearby_scope_place),
+            routeLabel = context.getString(com.example.roadguideapp.R.string.apple_nearby_scope_route),
+            placeContext = placeContext,
+            routeContext = routeContext,
+        )
+    }
+
+    private fun resolvePlaceContextForNearby(): NearbySearchContext.NearPlace? {
+        (nearbySearchContext as? NearbySearchContext.NearPlace)?.let { return it }
+        selectedPlace?.let { return NearbySearchContext.NearPlace(it.latLng, it.name) }
+        placeDetailForNearbyScope()?.let { return NearbySearchContext.NearPlace(it.latLng, it.name) }
+        return null
+    }
+
+    private fun placeDetailForNearbyScope(): MapPlaceDetail? {
+        val top = sheetStack.topLayer?.sheet
+        if (top is AppleMapSheet.PlaceDetail) return top.place
+        val directions = sheetStack.activeDirections() ?: return null
+        return directions.stops.lastOrNull() ?: directions.origin
+    }
+
+    fun applyNearbySearchContext(context: NearbySearchContext) {
+        if (nearbySearchContext == context) return
+        nearbySearchContext = context
+        refreshNearbyBrowseIfActive()
+    }
+
+    fun startNearbyCategoryBrowse(
+        shortcut: AppleNearbyShortcut,
+        searchContext: NearbySearchContext? = null,
+    ) {
+        val resolvedContext = searchContext ?: resolveDefaultNearbySearchContext()
+        nearbySearchContext = resolvedContext
+        scope.launch {
+            runNearbyCategorySearch(shortcut, resolvedContext, resetUi = true)
+        }
+    }
+
+    internal fun refreshNearbyBrowseIfActive() {
+        val category = activeNearbyCategory ?: return
+        scope.launch {
+            runNearbyCategorySearch(category, nearbySearchContext, resetUi = false)
+        }
+    }
+
+    private suspend fun runNearbyCategorySearch(
+        shortcut: AppleNearbyShortcut,
+        searchContext: NearbySearchContext,
+        resetUi: Boolean,
+    ) {
+        val map = mapLibreMap ?: return
+        val mapView = mapView ?: return
+        val style = mapRuntime?.second
+
+        if (resetUi) {
             isSearchActive = false
             searchSuggestions = emptyList()
             searchLoading = false
             searchError = null
-
             activeNearbyCategory = shortcut
             searchQuery = context.getString(shortcut.labelRes)
-            nearbyBrowseLoading = true
-            nearbyBrowseError = null
-            nearbyMapResults = emptyList()
             nearbyFilterState = NearbyResultsFilter.State()
             searchMarkerLocation = null
             selectedPlace = null
@@ -395,37 +465,44 @@ internal class MapScreenController(
             }
             sheetStack.clearToHome()
             expandHomeSheetToLarge()
+        }
 
-            try {
-                val outcome = if (style != null) {
-                    NearbyCategorySearchEngine.search(
-                        context = context,
-                        style = style,
-                        map = map,
-                        mapView = mapView,
-                        category = shortcut,
-                    )
-                } else {
-                    NearbyCategorySearchEngine.SearchOutcome(emptyList(), emptyMap())
-                }
+        nearbyBrowseLoading = true
+        nearbyBrowseError = null
+        if (resetUi) {
+            nearbyMapResults = emptyList()
+        }
 
-                nearbyMapResults = outcome.ranked.map { it.result }
-                nearbyMapPicks = outcome.picksByGid.values.toList()
-                nearbyBrowseError = outcome.errorMessage
-                syncNearbyMapHighlights()
-                if (outcome.ranked.isNotEmpty()) {
-                    nearbyBrowseError = null
-                    collapseHomeSheetToPeek()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Nearby category browse failed", e)
-                nearbyMapResults = emptyList()
-                nearbyMapPicks = emptyList()
-                nearbyBrowseError = e.message ?: "Nearby search failed"
-                style?.let { MapPoiSelectionController.clearNearbyHighlights(it) }
-            } finally {
-                nearbyBrowseLoading = false
+        try {
+            val outcome = if (style != null) {
+                NearbyCategorySearchEngine.search(
+                    context = context,
+                    style = style,
+                    map = map,
+                    mapView = mapView,
+                    category = shortcut,
+                    searchContext = searchContext,
+                )
+            } else {
+                NearbyCategorySearchEngine.SearchOutcome(emptyList(), emptyMap())
             }
+
+            nearbyMapResults = outcome.ranked.map { it.result }
+            nearbyMapPicks = outcome.picksByGid.values.toList()
+            nearbyBrowseError = outcome.errorMessage
+            syncNearbyMapHighlights()
+            if (outcome.ranked.isNotEmpty()) {
+                nearbyBrowseError = null
+                if (resetUi) collapseHomeSheetToPeek()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Nearby category browse failed", e)
+            nearbyMapResults = emptyList()
+            nearbyMapPicks = emptyList()
+            nearbyBrowseError = e.message ?: "Nearby search failed"
+            style?.let { MapPoiSelectionController.clearNearbyHighlights(it) }
+        } finally {
+            nearbyBrowseLoading = false
         }
     }
 
@@ -436,7 +513,28 @@ internal class MapScreenController(
         cameraEdgePaddingPx: Int,
         bottomPaddingPx: Int,
     ) {
-        val bounds = NearbyCategorySearch.boundsForResults(results) ?: return
+        val resultBounds = NearbyCategorySearch.boundsForResults(results)
+        val contextBounds = when (val ctx = nearbySearchContext) {
+            is NearbySearchContext.AlongRoute ->
+                PolylineDistance.boundsWithBuffer(ctx.polyline, ctx.radiusMeters)
+            is NearbySearchContext.NearPlace ->
+                PolylineDistance.boundsWithBuffer(
+                    listOf(ctx.location),
+                    NearbySearchContext.NEAR_PLACE_BOUNDS_PADDING_METERS,
+                )
+            NearbySearchContext.MapCenter -> null
+        }
+        val bounds = when {
+            resultBounds != null && contextBounds != null -> {
+                val builder = LatLngBounds.Builder()
+                includeBoundsCorners(builder, resultBounds)
+                includeBoundsCorners(builder, contextBounds)
+                builder.build()
+            }
+            resultBounds != null -> resultBounds
+            contextBounds != null -> contextBounds
+            else -> return
+        }
         mapOverlayCameraTick++
         MapViewportFit.animateToBounds(
             map = map,
@@ -453,6 +551,11 @@ internal class MapScreenController(
     fun updateNearbyFilter(state: NearbyResultsFilter.State) {
         nearbyFilterState = state
         syncNearbyMapHighlights()
+    }
+
+    private fun includeBoundsCorners(builder: LatLngBounds.Builder, bounds: LatLngBounds) {
+        builder.include(LatLng(bounds.latitudeSouth, bounds.longitudeWest))
+        builder.include(LatLng(bounds.latitudeNorth, bounds.longitudeEast))
     }
 }
 

@@ -130,6 +130,9 @@
     <string name="apple_search_no_results">No places found</string>
     <string name="apple_nearby_no_results">No nearby places found on this map</string>
     <string name="apple_nearby_on_map_hint">Showing places on the current map</string>
+    <string name="apple_nearby_scope_map_center">Map center</string>
+    <string name="apple_nearby_scope_place">Selected place</string>
+    <string name="apple_nearby_scope_route">Along route</string>
     <string name="apple_nearby_done">Done</string>
     <string name="apple_nearby_filter_open_now">Open Now</string>
     <string name="apple_nearby_filter_chains">All Chains</string>

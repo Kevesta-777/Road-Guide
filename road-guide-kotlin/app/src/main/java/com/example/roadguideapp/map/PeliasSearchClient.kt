@@ -96,6 +96,67 @@ internal object PeliasSearchClient {
     }
 
     /**
+     * Category browse along a route polyline: bbox query plus optional samples along the line.
+     */
+    suspend fun nearbyAlongPolyline(
+        categories: String,
+        polyline: List<LatLng>,
+        corridorMeters: Double,
+        maxSamples: Int = 10,
+        size: Int = DEFAULT_SIZE,
+    ): PeliasSearchResponse = withContext(Dispatchers.IO) {
+        val cats = categories.trim()
+        if (cats.isEmpty() || polyline.size < 2) {
+            return@withContext PeliasSearchResponse.Success(emptyList())
+        }
+
+        val bounds = PolylineDistance.boundsWithBuffer(polyline, corridorMeters)
+        val merged = ArrayList<PeliasSearchResult>()
+        val seen = HashSet<String>()
+
+        if (bounds != null) {
+            when (val bboxResponse = nearbyInBounds(cats, bounds, size)) {
+                is PeliasSearchResponse.Success -> {
+                    for (result in bboxResponse.results) {
+                        if (seen.add(result.gid)) merged.add(result)
+                    }
+                }
+                is PeliasSearchResponse.Failure -> {
+                    if (merged.isEmpty()) return@withContext bboxResponse
+                }
+            }
+        }
+
+        val samples = PolylineDistance.sampleAlongPolyline(polyline)
+            .let { points ->
+                if (points.size <= maxSamples) points
+                else {
+                    val step = (points.size - 1).toDouble() / (maxSamples - 1).coerceAtLeast(1)
+                    List(maxSamples) { index ->
+                        points[(index * step).toInt().coerceIn(0, points.lastIndex)]
+                    }
+                }
+            }
+
+        for (sample in samples) {
+            if (merged.size >= size) break
+            when (val pointResponse = nearby(cats, sample, size)) {
+                is PeliasSearchResponse.Success -> {
+                    for (result in pointResponse.results) {
+                        if (seen.add(result.gid)) merged.add(result)
+                        if (merged.size >= size) break
+                    }
+                }
+                is PeliasSearchResponse.Failure -> {
+                    if (merged.isEmpty()) return@withContext pointResponse
+                }
+            }
+        }
+
+        PeliasSearchResponse.Success(merged.take(size))
+    }
+
+    /**
      * Reverse geocode a map coordinate into a Pelias address label.
      */
     suspend fun reverse(

@@ -28,6 +28,8 @@ internal object NearbyMapPoiQuery {
         map: MapLibreMap,
         mapView: MapView,
         category: AppleNearbyShortcut,
+        searchContext: NearbySearchContext,
+        mapCenter: LatLng,
     ): List<NearbyMapHighlight> {
         val width = mapView.width.toFloat()
         val height = mapView.height.toFloat()
@@ -37,7 +39,7 @@ internal object NearbyMapPoiQuery {
         val layerIds = MapPoiSelectionController.poiTemplateLayerIds(style)
         if (layerIds.isEmpty()) return emptyList()
 
-        val center = map.cameraPosition.target ?: return emptyList()
+        val fallback = map.cameraPosition.target ?: mapCenter
         val seen = HashSet<String>()
         val ranked = ArrayList<Triple<NearbyMapHighlight, Double, MapPlacePick>>()
 
@@ -45,12 +47,13 @@ internal object NearbyMapPoiQuery {
             val features = map.queryRenderedFeatures(screenBox, layerId)
             for (feature in features) {
                 if (!NearbyCategorySearch.matchesMapFeature(category, feature)) continue
-                val pick = toPick(context, style, feature, center, layerId) ?: continue
+                val pick = toPick(context, style, feature, fallback, layerId) ?: continue
+                if (!searchContext.includes(pick.detail.latLng, mapCenter)) continue
                 if (!seen.add(pick.detail.id)) continue
                 ranked.add(
                     Triple(
                         NearbyMapHighlight(result = pick.toSearchResult(), pick = pick),
-                        DirectionsPathOptimizer.haversineMeters(center, pick.detail.latLng),
+                        searchContext.distanceMeters(pick.detail.latLng, mapCenter),
                         pick,
                     ),
                 )
