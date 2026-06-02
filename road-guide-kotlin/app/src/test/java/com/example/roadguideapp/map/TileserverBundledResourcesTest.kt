@@ -1,12 +1,34 @@
 package com.example.roadguideapp.map
 
-import org.json.JSONObject
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 class TileserverBundledResourcesTest {
+
+    @Test
+    fun assetPathForTileserverHttpUrl_mapsSpriteAndFontPaths() {
+        val spriteJson = "http://10.0.2.2:8080/tileserver/sprite/sprites.json".toHttpUrl()
+        assertEquals(
+            "map/sprites.json",
+            TileserverBundledResources.assetPathForTileserverHttpUrl(spriteJson),
+        )
+        assertTrue(TileserverBundledResources.isTileserverSpriteOrGlyphUrl(spriteJson))
+
+        val glyph = "http://10.0.2.2:8080/tileserver/font/Roboto%20Regular/0-255.pbf".toHttpUrl()
+        assertEquals(
+            "map/font/Roboto Regular/0-255.pbf",
+            TileserverBundledResources.assetPathForTileserverHttpUrl(glyph),
+        )
+
+        val tile = "http://10.0.2.2:8080/tileserver/data/v3/14/8192/5461.pbf".toHttpUrl()
+        assertNull(TileserverBundledResources.assetPathForTileserverHttpUrl(tile))
+        assertFalse(TileserverBundledResources.isTileserverSpriteOrGlyphUrl(tile))
+    }
 
     @Test
     fun isValidSpriteDirectory_rejectsEmptyOrInvalidPng() {
