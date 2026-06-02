@@ -424,7 +424,7 @@ export function PoiManagementMap({
       `}</style>
       <div ref={containerRef} className="absolute inset-0 min-h-[600px]" />
       {active && mapMessage && (
-        <div className="absolute top-4 left-4 z-10 max-w-sm rounded-lg border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-lg backdrop-blur">
+        <div className="absolute top-3 left-12 z-10 max-w-sm rounded-lg border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-lg backdrop-blur">
           {mapMessage}
         </div>
       )}
