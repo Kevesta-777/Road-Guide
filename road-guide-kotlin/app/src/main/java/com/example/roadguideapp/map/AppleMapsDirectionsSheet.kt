@@ -69,6 +69,7 @@ internal fun AppleMapsDirectionsPanel(
     contentScrollEnabled: Boolean,
     onAddStopRowClick: () -> Unit,
     onDismiss: () -> Unit,
+    onNearbyShortcutClick: (AppleNearbyShortcut) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val travelModeIndex = DirectionsTravelMode.chipIndex(travelMode)
@@ -232,6 +233,12 @@ internal fun AppleMapsDirectionsPanel(
                         sheetTheme = sheetTheme,
                     )
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                NearbyShortcutsSection(
+                    sheetTheme = sheetTheme,
+                    onShortcutClick = onNearbyShortcutClick,
+                )
 
                 Row(
                     modifier = Modifier

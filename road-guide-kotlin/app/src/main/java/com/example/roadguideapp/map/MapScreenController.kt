@@ -79,6 +79,11 @@ internal class MapScreenController(
     }
 
     fun exitNearbyBrowse() {
+        clearNearbyBrowseState()
+        sheetStack.removeNearbyBrowse()
+    }
+
+    private fun clearNearbyBrowseState() {
         activeNearbyCategory = null
         nearbySearchContext = NearbySearchContext.MapCenter
         nearbyMapResults = emptyList()
@@ -90,9 +95,6 @@ internal class MapScreenController(
             searchQuery = ""
         }
         mapRuntime?.second?.let { MapPoiSelectionController.clearNearbyHighlights(it) }
-        if (!sheetStack.hasOverlay) {
-            collapseHomeSheetToPeek()
-        }
     }
 
     fun syncNearbyMapHighlights() {
@@ -143,7 +145,8 @@ internal class MapScreenController(
         val map = mapLibreMap ?: return
         val style = mapRuntime?.second
         if (activeNearbyCategory != null) {
-            exitNearbyBrowse()
+            clearNearbyBrowseState()
+            sheetStack.removeNearbyBrowse()
         }
         searchQuery = place.name
         searchSuggestions = emptyList()
@@ -415,6 +418,19 @@ internal class MapScreenController(
         return directions.stops.lastOrNull() ?: directions.origin
     }
 
+    fun nearbyContextForPlace(place: MapPlaceDetail): NearbySearchContext.NearPlace =
+        NearbySearchContext.NearPlace(place.latLng, place.name)
+
+    fun nearbyContextForDirections(): NearbySearchContext {
+        val geometry = activeRouteGeometry
+        if (sheetStack.activeDirections() != null && geometry != null && geometry.size >= 2) {
+            return NearbySearchContext.AlongRoute(geometry)
+        }
+        val directions = sheetStack.activeDirections() ?: return NearbySearchContext.MapCenter
+        val destination = directions.stops.lastOrNull() ?: directions.origin
+        return NearbySearchContext.NearPlace(destination.latLng, destination.name)
+    }
+
     fun applyNearbySearchContext(context: NearbySearchContext) {
         if (nearbySearchContext == context) return
         nearbySearchContext = context
@@ -427,6 +443,9 @@ internal class MapScreenController(
     ) {
         val resolvedContext = searchContext ?: resolveDefaultNearbySearchContext()
         nearbySearchContext = resolvedContext
+        if (!sheetStack.hasNearbyBrowse()) {
+            sheetStack.push(AppleMapSheet.NearbyBrowse, targetSnap = AppleSheetSnap.Mid)
+        }
         scope.launch {
             runNearbyCategorySearch(shortcut, resolvedContext, resetUi = true)
         }
@@ -457,14 +476,10 @@ internal class MapScreenController(
             searchQuery = context.getString(shortcut.labelRes)
             nearbyFilterState = NearbyResultsFilter.State()
             searchMarkerLocation = null
-            selectedPlace = null
-            lastMapPlacePick = null
             if (style != null) {
                 MapPoiSelectionController.clearNearbyHighlights(style)
-                MapPoiSelectionController.clear(style)
             }
-            sheetStack.clearToHome()
-            expandHomeSheetToLarge()
+            sheetStack.updateAllSyncedSnaps(AppleSheetSnap.Mid)
         }
 
         nearbyBrowseLoading = true
@@ -536,16 +551,18 @@ internal class MapScreenController(
             else -> return
         }
         mapOverlayCameraTick++
-        MapViewportFit.animateToBounds(
-            map = map,
-            mapView = mapView,
-            bounds = bounds,
-            paddingLeft = cameraEdgePaddingPx,
-            paddingTop = cameraEdgePaddingPx,
-            paddingRight = cameraEdgePaddingPx,
-            paddingBottom = bottomPaddingPx + cameraEdgePaddingPx,
-            durationMs = MapConstants.ZOOM_ANIMATION_MS,
-        )
+        runCatching {
+            MapViewportFit.animateToBounds(
+                map = map,
+                mapView = mapView,
+                bounds = bounds,
+                paddingLeft = cameraEdgePaddingPx,
+                paddingTop = cameraEdgePaddingPx,
+                paddingRight = cameraEdgePaddingPx,
+                paddingBottom = bottomPaddingPx + cameraEdgePaddingPx,
+                durationMs = MapConstants.ZOOM_ANIMATION_MS,
+            )
+        }
     }
 
     fun updateNearbyFilter(state: NearbyResultsFilter.State) {

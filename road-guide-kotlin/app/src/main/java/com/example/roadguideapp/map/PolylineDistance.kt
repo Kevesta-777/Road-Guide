@@ -66,6 +66,50 @@ internal object PolylineDistance {
         return samples
     }
 
+    /**
+     * [count] points spaced evenly by arc length from route start to end (always includes both).
+     */
+    fun sampleEvenlyAlongPolyline(polyline: List<LatLng>, count: Int): List<LatLng> {
+        if (polyline.isEmpty()) return emptyList()
+        if (polyline.size == 1 || count <= 1) return listOf(polyline.first())
+        if (count == 2) return listOf(polyline.first(), polyline.last())
+
+        val cumulative = DoubleArray(polyline.size)
+        var totalMeters = 0.0
+        cumulative[0] = 0.0
+        for (index in 1 until polyline.size) {
+            totalMeters += DirectionsPathOptimizer.haversineMeters(
+                polyline[index - 1],
+                polyline[index],
+            )
+            cumulative[index] = totalMeters
+        }
+        if (totalMeters <= 1e-3) return listOf(polyline.first(), polyline.last())
+
+        return List(count) { index ->
+            val targetMeters = totalMeters * index / (count - 1).coerceAtLeast(1)
+            pointAtArcLength(polyline, cumulative, targetMeters)
+        }
+    }
+
+    private fun pointAtArcLength(
+        polyline: List<LatLng>,
+        cumulativeMeters: DoubleArray,
+        targetMeters: Double,
+    ): LatLng {
+        var segmentIndex = 1
+        while (segmentIndex < cumulativeMeters.size && cumulativeMeters[segmentIndex] < targetMeters) {
+            segmentIndex++
+        }
+        if (segmentIndex >= polyline.size) return polyline.last()
+
+        val segmentStartMeters = cumulativeMeters[segmentIndex - 1]
+        val segmentEndMeters = cumulativeMeters[segmentIndex]
+        val segmentLength = (segmentEndMeters - segmentStartMeters).coerceAtLeast(1e-9)
+        val t = ((targetMeters - segmentStartMeters) / segmentLength).toFloat().coerceIn(0f, 1f)
+        return interpolate(polyline[segmentIndex - 1], polyline[segmentIndex], t)
+    }
+
     fun boundsWithBuffer(polyline: List<LatLng>, bufferMeters: Double): LatLngBounds? {
         if (polyline.isEmpty()) return null
         var south = polyline.first().latitude
@@ -81,11 +125,11 @@ internal object PolylineDistance {
         val midLat = (south + north) / 2.0
         val latPad = metersToLatitudeDegrees(bufferMeters)
         val lonPad = metersToLongitudeDegrees(bufferMeters, midLat)
-        return LatLngBounds.from(
-            (south - latPad).coerceIn(-85.0, 85.0),
-            (west - lonPad).coerceIn(-180.0, 180.0),
-            (north + latPad).coerceIn(-85.0, 85.0),
-            (east + lonPad).coerceIn(-180.0, 180.0),
+        return LatLngBoundsExt.fromEdges(
+            south = (south - latPad).coerceIn(-85.0, 85.0),
+            west = (west - lonPad).coerceIn(-180.0, 180.0),
+            north = (north + latPad).coerceIn(-85.0, 85.0),
+            east = (east + lonPad).coerceIn(-180.0, 180.0),
         )
     }
 

@@ -21,6 +21,20 @@ class PolylineDistanceTest {
     }
 
     @Test
+    fun sampleEvenlyAlongPolyline_spansStartToEnd() {
+        val polyline = listOf(
+            LatLng(51.50, -0.10),
+            LatLng(51.55, -0.10),
+        )
+        val samples = PolylineDistance.sampleEvenlyAlongPolyline(polyline, count = 5)
+        assertEquals(5, samples.size)
+        assertEquals(polyline.first().latitude, samples.first().latitude, 1e-6)
+        assertEquals(polyline.last().latitude, samples.last().latitude, 1e-6)
+        assertTrue(samples[2].latitude > samples.first().latitude)
+        assertTrue(samples[2].latitude < samples.last().latitude)
+    }
+
+    @Test
     fun boundsWithBuffer_expandsPolyline() {
         val polyline = listOf(
             LatLng(51.50, -0.10),

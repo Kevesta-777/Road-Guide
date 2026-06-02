@@ -124,7 +124,9 @@ internal object NearbyCategorySearchEngine {
             }
         }
 
-        if (indexed.size < TARGET_MIN_RESULTS) {
+        val needsContextPelias = indexed.size < TARGET_MIN_RESULTS ||
+            searchContext is NearbySearchContext.AlongRoute
+        if (needsContextPelias) {
             val pointResults = withContext(Dispatchers.IO) {
                 fetchContextPointResults(category, searchContext, mapCenter)
             }
@@ -161,12 +163,9 @@ internal object NearbyCategorySearchEngine {
         mapCenter: LatLng,
         viewportBounds: LatLngBounds?,
     ): LatLngBounds? = when (searchContext) {
-        is NearbySearchContext.AlongRoute -> {
-            PolylineDistance.boundsWithBuffer(
-                searchContext.polyline,
-                searchContext.radiusMeters,
-            ) ?: viewportBounds
-        }
+        // Route corridors are covered by point samples in [fetchContextPointResults]; Pelias
+        // `/nearby` does not support full-route rects and caps circle radius (~5 km).
+        is NearbySearchContext.AlongRoute -> null
         is NearbySearchContext.NearPlace -> {
             PolylineDistance.boundsWithBuffer(
                 listOf(searchContext.location),

@@ -644,19 +644,6 @@ fun MapLibreMbTilesMap(
                                 onNearbyShortcutClick = { shortcut ->
                                     controller.startNearbyCategoryBrowse(shortcut)
                                 },
-                                activeNearbyCategory = controller.activeNearbyCategory,
-                                nearbyBrowseResults = filteredNearby.visibleResults,
-                                nearbyBrowseLoading = controller.nearbyBrowseLoading,
-                                nearbyBrowseError = controller.nearbyBrowseError,
-                                nearbyFilterState = controller.nearbyFilterState,
-                                nearbyAvailableChains = filteredNearby.availableChains,
-                                nearbyPickHoursByGid = nearbyPickHoursByGid,
-                                onNearbyFilterChange = { controller.updateNearbyFilter(it) },
-                                nearbyScopeOptions = controller.buildNearbyScopeOptions(),
-                                nearbySearchContext = controller.nearbySearchContext,
-                                onNearbySearchContextChange = { controller.applyNearbySearchContext(it) },
-                                onNearbyBrowseDone = { controller.exitNearbyBrowse() },
-                                onNearbyPlaceSelected = { controller.openNearbyPlace(it) },
                                 onSearchClear = { controller.clearSearchQueryOnly() },
                                 searchSuggestions = controller.searchSuggestions,
                                 searchLoading = controller.searchLoading,
@@ -730,7 +717,11 @@ fun MapLibreMbTilesMap(
                                 contentScrollEnabled = contentScrollEnabled,
                                 sheetGestures = sheetGestures,
                                 onClose = {
-                                    sheetStack.clearToHome()
+                                    if (sheetStack.layers.size > 1) {
+                                        sheetStack.pop()
+                                    } else {
+                                        sheetStack.clearToHome()
+                                    }
                                     controller.selectedPlace = null
                                 },
                                 sheetTheme = sheetTheme,
@@ -830,8 +821,40 @@ fun MapLibreMbTilesMap(
                                         }
                                     }
                                 },
+                                onNearbyShortcutClick = { shortcut ->
+                                    controller.startNearbyCategoryBrowse(
+                                        shortcut,
+                                        controller.nearbyContextForPlace(place),
+                                    )
+                                },
                                 modifier = sheetModifier,
                             )
+                        }
+
+                        AppleMapSheet.NearbyBrowse -> {
+                            val category = controller.activeNearbyCategory
+                            if (category != null) {
+                                NearbyBrowseSheetContent(
+                                    sheetTheme = sheetTheme,
+                                    scrollState = scrollState,
+                                    contentScrollEnabled = contentScrollEnabled,
+                                    sheetGestures = sheetGestures,
+                                    category = category,
+                                    results = filteredNearby.visibleResults,
+                                    loading = controller.nearbyBrowseLoading,
+                                    errorMessage = controller.nearbyBrowseError,
+                                    filterState = controller.nearbyFilterState,
+                                    availableChains = filteredNearby.availableChains,
+                                    pickHoursByGid = nearbyPickHoursByGid,
+                                    scopeOptions = controller.buildNearbyScopeOptions(),
+                                    searchContext = controller.nearbySearchContext,
+                                    onScopeSelected = { controller.applyNearbySearchContext(it) },
+                                    onFilterChange = { controller.updateNearbyFilter(it) },
+                                    onResultSelected = { controller.openNearbyPlace(it) },
+                                    onClose = { controller.exitNearbyBrowse() },
+                                    modifier = sheetModifier,
+                                )
+                            }
                         }
 
                         is AppleMapSheet.UserProfile -> {
@@ -896,6 +919,12 @@ fun MapLibreMbTilesMap(
                                 onDismiss = {
                                     sheetStack.removeDirectionsAndAddStop()
                                     controller.selectedPlace = sheetStack.topPlaceDetail()?.place
+                                },
+                                onNearbyShortcutClick = { shortcut ->
+                                    controller.startNearbyCategoryBrowse(
+                                        shortcut,
+                                        controller.nearbyContextForDirections(),
+                                    )
                                 },
                                 modifier = sheetModifier.fillMaxWidth(),
                             )
