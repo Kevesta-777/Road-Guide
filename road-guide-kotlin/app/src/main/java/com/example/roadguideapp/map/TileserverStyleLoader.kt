@@ -80,7 +80,7 @@ internal object TileserverStyleLoader {
             val root = JSONObject(cachedStyle)
             val highZoomCap = metadata?.maxZoom ?: BuildConfig.OVERVIEW_PMTILES_MAX_ZOOM
             PmtilesOverviewStylePatch.extendOverviewLayersForHighZoomFallback(root, highZoomCap)
-            TileserverBundledResources.applyLocalSpriteAndGlyphs(root, context, origin)
+            TileserverBundledResources.applyOfflineResourcesForCachedHybrid(root, context, origin)
             val json = root.toString()
             Log.i(
                 TAG,

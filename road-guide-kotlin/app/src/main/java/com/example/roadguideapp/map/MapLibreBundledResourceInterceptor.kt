@@ -1,17 +1,18 @@
 package com.example.roadguideapp.map
 
 import android.content.Context
+import okhttp3.CacheControl
 import okhttp3.Interceptor
 import okhttp3.Protocol
 import okhttp3.Response
 
 /**
- * Serves tileserver sprite/glyph HTTP URLs from APK assets or the on-device resource pack
- * when the tileserver is unreachable (or the live request fails).
+ * When the tileserver is unreachable, serves sprite/glyph HTTP from (in order):
+ * 1. OkHttp disk cache (resources fetched during the last online session)
+ * 2. Tileserver prefetch under `filesDir/map_offline_resources/`
+ * 3. APK bundled sprites/glyphs
  *
- * When online, MapLibre must fetch sprites/glyphs from the tileserver so z11+ detail layers
- * (POI icons, labels, etc.) match the live vector tiles. Serving the smaller APK bundle
- * instead caused missing or wrong icons after the dual-tier switch to tileserver tiles.
+ * When online, requests pass through so z11+ detail layers use the live tileserver pack.
  */
 internal class MapLibreBundledResourceInterceptor(
     private val appContext: Context,
@@ -22,7 +23,20 @@ internal class MapLibreBundledResourceInterceptor(
         if (shouldUseLiveTileserverSprites()) {
             return chain.proceed(request)
         }
-        return serveBundledOrProceed(chain, request)
+        if (TileserverBundledResources.isTileserverSpriteOrGlyphUrl(request.url)) {
+            tryServeFromOkHttpCache(chain, request)?.let { return it }
+            val body = TileserverBundledResources.createOfflineHttpResponseBody(appContext, request.url)
+            if (body != null) {
+                return Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body(body)
+                    .build()
+            }
+        }
+        return chain.proceed(request)
     }
 
     private fun shouldUseLiveTileserverSprites(): Boolean {
@@ -31,17 +45,23 @@ internal class MapLibreBundledResourceInterceptor(
         return TileserverReachability.isReachable()
     }
 
-    private fun serveBundledOrProceed(chain: Interceptor.Chain, request: okhttp3.Request): Response {
-        val body = TileserverBundledResources.createLocalHttpResponseBody(appContext, request.url)
-        if (body != null) {
-            return Response.Builder()
-                .request(request)
-                .protocol(Protocol.HTTP_1_1)
-                .code(200)
-                .message("OK")
-                .body(body)
-                .build()
+    private fun tryServeFromOkHttpCache(
+        chain: Interceptor.Chain,
+        request: okhttp3.Request,
+    ): Response? {
+        val cacheRequest = request.newBuilder()
+            .cacheControl(CacheControl.FORCE_CACHE)
+            .build()
+        return try {
+            val response = chain.proceed(cacheRequest)
+            if (response.isSuccessful) {
+                response
+            } else {
+                response.close()
+                null
+            }
+        } catch (_: Exception) {
+            null
         }
-        return chain.proceed(request)
     }
 }
