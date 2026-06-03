@@ -11,4 +11,7 @@ enum class AuthDestination {
     MyQrCode,
     ScanFriendQr,
     AddFriendById,
+    CompanionFinder,
+    CompanionOfferRide,
+    CompanionBrowseRides,
 }

@@ -271,13 +271,18 @@ internal fun AuthPrimaryButton(
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(50.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = sheetTheme.accent,
             contentColor = sheetTheme.onAccent,
+            disabledContainerColor = sheetTheme.accent.copy(alpha = 0.4f),
+            disabledContentColor = sheetTheme.onAccent.copy(alpha = 0.7f),
         ),
     ) {
-        Text(text = text, fontSize = 17.sp)
+        Text(text = text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -292,9 +297,17 @@ internal fun AuthSecondaryButton(
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(50.dp),
+        shape = RoundedCornerShape(12.dp),
     ) {
-        Text(text = text, color = sheetTheme.primaryText, fontSize = 17.sp)
+        Text(
+            text = text,
+            color = sheetTheme.primaryText,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -335,38 +348,16 @@ internal fun AuthField(
             fontWeight = FontWeight.Medium,
         )
         Spacer(modifier = Modifier.height(8.dp))
-        BasicTextField(
+        com.example.roadguideapp.map.SearchTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .background(sheetTheme.searchFieldFill, RoundedCornerShape(12.dp))
-                .padding(horizontal = 14.dp),
-            textStyle = TextStyle(
-                color = sheetTheme.searchFieldText,
-                fontSize = 17.sp,
-            ),
-            singleLine = true,
-            visualTransformation = visualTransformation,
+            placeholder = placeholder,
+            sheetTheme = sheetTheme,
+            leadingIcon = null,
+            showClearWhenNonEmpty = false,
             keyboardOptions = keyboardOptions,
             keyboardActions = keyboardActions,
-            cursorBrush = SolidColor(sheetTheme.searchFieldText),
-            decorationBox = { innerTextField ->
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    if (value.isEmpty()) {
-                        Text(
-                            text = placeholder,
-                            color = sheetTheme.searchFieldHint,
-                            fontSize = 17.sp,
-                        )
-                    }
-                    innerTextField()
-                }
-            },
+            visualTransformation = visualTransformation,
         )
     }
 }
@@ -460,6 +451,14 @@ internal fun AuthNavRow(
 internal fun AuthNavDivider(sheetTheme: AppleMapsSheetTheme) {
     HorizontalDivider(
         modifier = Modifier.padding(start = 70.dp),
+        color = sheetTheme.divider.copy(alpha = 0.6f),
+    )
+}
+
+@Composable
+internal fun AuthFormDivider(sheetTheme: AppleMapsSheetTheme) {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 12.dp),
         color = sheetTheme.divider.copy(alpha = 0.6f),
     )
 }

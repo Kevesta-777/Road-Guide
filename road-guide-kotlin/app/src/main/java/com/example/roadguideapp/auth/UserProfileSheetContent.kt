@@ -64,6 +64,7 @@ internal fun UserProfileSheetContent(
     onMyQrCode: () -> Unit,
     onAddFriend: () -> Unit,
     onFriendsList: () -> Unit,
+    onCompanionFinder: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -140,6 +141,7 @@ internal fun UserProfileSheetContent(
                         onMyQrCode = onMyQrCode,
                         onAddFriend = onAddFriend,
                         onFriendsList = onFriendsList,
+                        onCompanionFinder = onCompanionFinder,
                     )
                     ProfileAccountSection(
                         sheetTheme = sheetTheme,

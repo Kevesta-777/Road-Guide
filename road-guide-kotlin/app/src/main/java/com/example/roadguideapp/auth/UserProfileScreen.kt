@@ -23,6 +23,7 @@ internal fun UserProfileScreen(
     onMyQrCode: () -> Unit,
     onAddFriend: () -> Unit,
     onFriendsList: () -> Unit,
+    onCompanionFinder: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val sheetTheme = rememberAuthSheetTheme()
@@ -52,6 +53,7 @@ internal fun UserProfileScreen(
             onMyQrCode = onMyQrCode,
             onAddFriend = onAddFriend,
             onFriendsList = onFriendsList,
+            onCompanionFinder = onCompanionFinder,
         )
         ProfileAccountSection(
             sheetTheme = sheetTheme,

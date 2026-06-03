@@ -50,42 +50,28 @@ internal fun NearbyCategorySearchHeader(
             .padding(bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .height(48.dp)
-                .background(sheetTheme.searchFieldFill, RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Search,
-                contentDescription = null,
-                tint = sheetTheme.searchFieldHint,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = categoryLabel,
-                color = sheetTheme.primaryText,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier.size(32.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Close,
-                    contentDescription = stringResource(R.string.apple_close),
-                    tint = sheetTheme.searchFieldHint,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
+        SearchTextField(
+            value = categoryLabel,
+            onValueChange = {},
+            placeholder = categoryLabel,
+            sheetTheme = sheetTheme,
+            modifier = Modifier.weight(1f),
+            readOnly = true,
+            showClearWhenNonEmpty = false,
+            trailingContent = {
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = stringResource(R.string.apple_close),
+                        tint = sheetTheme.searchFieldHint,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            },
+        )
     }
 }
 
@@ -128,25 +114,11 @@ internal fun NearbyCategoryResultsContent(
 
         when {
             loading -> {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = sheetTheme.accent,
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = stringResource(R.string.apple_search_loading),
-                        color = sheetTheme.secondaryText,
-                        fontSize = 15.sp,
-                    )
-                }
+                SearchLoadingRow(
+                    sheetTheme = sheetTheme,
+                    message = stringResource(R.string.apple_search_loading),
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
             }
 
             errorMessage != null -> {
@@ -160,11 +132,10 @@ internal fun NearbyCategoryResultsContent(
             }
 
             results.isEmpty() -> {
-                Text(
-                    text = stringResource(R.string.apple_nearby_no_results),
-                    color = sheetTheme.secondaryText,
-                    fontSize = 15.sp,
-                    modifier = Modifier.padding(vertical = 12.dp),
+                SearchEmptyState(
+                    title = stringResource(R.string.apple_nearby_no_results),
+                    sheetTheme = sheetTheme,
+                    modifier = Modifier.padding(vertical = 4.dp),
                 )
             }
 
@@ -262,32 +233,14 @@ private fun NearbyFilterChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .clickable(onClick = onClick)
-            .background(
-                color = if (selected) sheetTheme.accent.copy(alpha = 0.15f) else sheetTheme.searchFieldFill,
-                shape = RoundedCornerShape(20.dp),
-            )
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            color = sheetTheme.primaryText,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-        )
-        if (showDropdown) {
-            Spacer(modifier = Modifier.width(4.dp))
-            Icon(
-                imageVector = Icons.Outlined.ExpandMore,
-                contentDescription = null,
-                tint = sheetTheme.secondaryText,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
+    SearchFilterChip(
+        label = label,
+        sheetTheme = sheetTheme,
+        selected = selected,
+        showDropdown = showDropdown,
+        onClick = onClick,
+        modifier = modifier,
+    )
 }
 
 @Composable

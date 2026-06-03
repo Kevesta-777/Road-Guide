@@ -1,71 +1,59 @@
-# Road Guide Backend (Main API)
+# ROAD Guide Backend
 
-This service implements:
-
-- JWT-based authentication (`visitor`, `business`, `admin`)
-- Business claim flow for POIs
-- Admin approval workflow to promote users and assign POIs
-- Ownership-based authorization for all business POI management APIs
-- Business detail editing and media uploads (photo + panorama)
-- Admin review queue for uploaded panoramas (`pending` → `approved` / `rejected`)
+Go API server for ROAD Guide (map app, admin panel, Companion Finder).
 
 ## Run
 
 ```bash
-go run ./cmd/api
+cd road-guide-backend
+go run .
 ```
 
-Default server: `http://localhost:8090`
+Requires PostgreSQL (`DATABASE_URL`) and `JWT_SECRET` in `.env`.
 
-Default PostgreSQL connection:
+## Project structure
 
-- `postgres://postgres:postgres@localhost:5432/road_guide?sslmode=disable`
+```
+road-guide-backend/
+├── main.go              # Bootstrap: config, DB, migrate/seed, wire router
+├── config/              # Env loading (config.Load)
+├── models/              # Domain types and constants (User, roles, companion statuses)
+├── utils/               # JSON helpers, Postgres rebind, gin wrap, geo/POI helpers
+├── middleware/          # CORS, JWT auth, admin role guard
+├── routers/             # Gin route registration
+├── controllers/         # HTTP layer (thin delegates to services)
+└── services/            # Business logic, SQL, migrations, seeds
+```
 
-## Seeded Admin Account
+| Package | Responsibility |
+|---------|----------------|
+| `config` | `DATABASE_URL`, `JWT_SECRET`, `APP_ADDR`, uploads, claim guidance |
+| `models` | Shared structs and role/status constants |
+| `utils` | `WriteJSON`, `RebindPostgres`, `GinWrap`, `URLParam` |
+| `middleware` | `RequireAuth`, `RequireRole`, CORS |
+| `routers` | All `/api/v1` routes |
+| `controllers` | Parse HTTP → call service handlers |
+| `services` | Auth, business POI, friends, places, companion, subscription, admin |
 
-- Identifier: `admin`
-- Password: `admin1234`
+Handlers use standard `http.ResponseWriter` / `*http.Request` and are wrapped for Gin via `utils.GinWrap`. URL params use `utils.URLParam(r, "poiID")`.
 
-Override via environment variables:
+## Key APIs
 
-- `ADMIN_SEED_IDENTIFIER`
-- `ADMIN_SEED_PASSWORD`
-- `ADMIN_SEED_NAME`
+- `GET /api/v1/subscriptions/status` — user subscription (required for Offer Ride)
+- `POST /api/v1/companion/driver-posts` — create ride (Premium required)
+- `POST /api/v1/companion/driver-posts/{id}/book` — book seat (creates passenger request for admin)
+- `GET /api/v1/admin/companion/passenger-requests` — admin passenger list
+- `GET /api/v1/admin/companion/bookings` — admin bookings list
+- `GET /api/v1/admin/subscriptions/*` — plans, content, user subscriptions
 
-## Key Environment Variables
+## Admin: enable Premium for a driver
 
-- `APP_ADDR` (default `:8090`)
-- `DATABASE_URL` (default `postgres://postgres:postgres@localhost:5432/road_guide?sslmode=disable`)
-- `JWT_SECRET` (default `dev-secret-change-me`)
-- `UPLOAD_DIR` (default `./uploads`)
-- `PUBLIC_UPLOAD_PREFIX` (default `/uploads`)
-- `CLAIM_CONTACT_PHONE`
-- `CLAIM_AGENT_ADDRESS`
-- `CLAIM_HOURS`
-- `CLAIM_INSTRUCTIONS`
+`POST /api/v1/admin/subscriptions/users` with body:
 
-## Mobile Integration Contract
-
-The app should call:
-
-- `GET /api/v1/business-claims/{poiID}` when tapping **Claim This Place**
-  - If assigned business owner:
-    - `claimButtonAction.type = "navigate_business_edit"`
-    - `claimButtonAction.targetPath` and API fields are returned
-  - If not assigned:
-    - `claimButtonAction.type = "show_registration_info"`
-    - `registrationGuidance` contains contact phone, address, hours, instructions
-    - `claimButtonAction.requestClaimApi` is returned
-
-- `GET /api/v1/business-pois/{poiID}` for edit screen bootstrap
-  - returns `poi`, `media`, and `editContract` endpoint definitions
-
-The mobile app opens an in-app **Business Detail Edit** screen when an assigned business user taps **Claim This Place**.
-
-### Panorama admin review
-
-- Business uploads with `kind=panorama` are stored with `status=pending`.
-- Admin panel **360° Images** loads `GET /api/v1/admin/panoramas` (`{ items: [...] }`).
-- Approve: `POST /api/v1/admin/panoramas/{mediaID}/approve`
-- Reject: `POST /api/v1/admin/panoramas/{mediaID}/reject` with `{ "adminNote": "..." }`
-- Mobile **Look Around** loads approved panoramas: `GET /api/v1/places/panoramas?externalRef=...` (no auth)
+```json
+{
+  "userId": "<user-uuid>",
+  "planId": "plan-premium",
+  "expiresAt": "2027-12-31T00:00:00Z"
+}
+```
