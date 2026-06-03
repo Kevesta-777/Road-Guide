@@ -26,8 +26,8 @@ internal fun DirectionsWaypointMarkersOverlay(
 ) {
     if (directions == null || map == null) return
 
-    val ordered = remember(directions.origin.id, directions.stops.map { it.id }) {
-        listOf(directions.origin) + directions.stops
+    val ordered = remember(directions.tripWaypoints.map { it.id }) {
+        directions.tripWaypoints
     }
     val lastIndex = ordered.lastIndex
     val density = LocalDensity.current
