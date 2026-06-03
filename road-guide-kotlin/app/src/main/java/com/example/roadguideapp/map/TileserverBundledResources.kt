@@ -15,8 +15,10 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 
 /**
- * Offline map sprites/glyphs: APK [asset://] (primary), materialized [cacheDir] `file://`, and
- * optional tileserver prefetch for HTTP interception only.
+ * Offline map sprites/glyphs:
+ * - **Cached hybrid:** tileserver prefetch (`filesDir/map_offline_resources`) or OkHttp disk cache
+ *   for HTTP URLs; must match cached z11+ vector tiles.
+ * - **Bundled offline:** APK [asset://] or materialized [cacheDir] `file://`.
  */
 internal object TileserverBundledResources {
 
@@ -100,52 +102,130 @@ internal object TileserverBundledResources {
     }
 
     /**
-     * Points style JSON at local sprite/glyph URLs.
+     * Points style JSON at bundled sprites/glyphs for first-launch offline (PMTiles-only).
      * Priority: APK `asset://` → materialized `file://` in cacheDir.
      */
     fun applyLocalSpriteAndGlyphs(root: JSONObject, context: Context, tileserverOrigin: String) {
         val origin = tileserverOrigin.trimEnd('/')
         purgeInvalidPrefetch(context, origin)
+        applyResolvedSpriteAndGlyphs(
+            root = root,
+            spriteUrl = resolveBundledSpriteStyleUrl(context),
+            glyphsUrl = resolveBundledGlyphsStyleUrl(context),
+            logLabel = "bundled offline",
+        )
+    }
 
-        val spriteUrl = resolveSpriteStyleUrl(context)
-        if (spriteUrl != null) {
-            root.put("sprite", spriteUrl)
-        } else {
-            Log.w(TAG, "No local sprite source found; map icons may be missing.")
-        }
-        val glyphsUrl = resolveGlyphsStyleUrl(context)
-        if (glyphsUrl != null) {
-            root.put("glyphs", glyphsUrl)
-        } else {
-            Log.w(TAG, "No local glyphs source found; map labels may be missing.")
+    /**
+     * For [ResolvedMapStyle.Mode.CachedHybrid]: use tileserver sprites prefetched on the last
+     * online visit so POI icons match cached detail vector tiles. If prefetch is missing, keep
+     * the cached style's HTTP sprite/glyph URLs so [MapLibreBundledResourceInterceptor] can serve
+     * them from the OkHttp disk cache.
+     */
+    fun applyOfflineResourcesForCachedHybrid(
+        root: JSONObject,
+        context: Context,
+        tileserverOrigin: String,
+    ) {
+        val origin = tileserverOrigin.trimEnd('/')
+        purgeInvalidPrefetch(context, origin)
+        val prefetched = resolvePrefetchedSpriteAndGlyphs(origin, context)
+        if (prefetched != null) {
+            applyResolvedSpriteAndGlyphs(
+                root = root,
+                spriteUrl = prefetched.spriteUrl,
+                glyphsUrl = prefetched.glyphsUrl,
+                logLabel = "cached hybrid (prefetch)",
+            )
+            return
         }
         Log.i(
             TAG,
-            "Applied offline resources: sprite=${root.optString("sprite")} glyphs=${root.optString("glyphs")}",
+            "Cached hybrid: keeping style sprite/glyph URLs for OkHttp disk cache " +
+                "(sprite=${root.optString("sprite")})",
         )
+    }
+
+    private data class SpriteGlyphUrls(val spriteUrl: String, val glyphsUrl: String)
+
+    private fun applyResolvedSpriteAndGlyphs(
+        root: JSONObject,
+        spriteUrl: String?,
+        glyphsUrl: String?,
+        logLabel: String,
+    ) {
+        if (spriteUrl != null) {
+            root.put("sprite", spriteUrl)
+        } else {
+            Log.w(TAG, "No sprite source for $logLabel; map icons may be missing.")
+        }
+        if (glyphsUrl != null) {
+            root.put("glyphs", glyphsUrl)
+        } else {
+            Log.w(TAG, "No glyphs source for $logLabel; map labels may be missing.")
+        }
+        Log.i(
+            TAG,
+            "Applied $logLabel resources: sprite=${root.optString("sprite")} " +
+                "glyphs=${root.optString("glyphs")}",
+        )
+    }
+
+    private fun resolvePrefetchedSpriteAndGlyphs(
+        tileserverOrigin: String,
+        context: Context,
+    ): SpriteGlyphUrls? {
+        val root = prefetchRoot(context, tileserverOrigin)
+        val spriteBase = resolveSpriteFileBase(root) ?: return null
+        val glyphsTemplate = resolveGlyphsFileTemplate(root.resolve("font")) ?: return null
+        return SpriteGlyphUrls(fileUrl(spriteBase), glyphsTemplate)
     }
 
     fun hasLocalResources(context: Context, tileserverOrigin: String): Boolean {
         purgeInvalidPrefetch(context, tileserverOrigin.trimEnd('/'))
-        return resolveSpriteStyleUrl(context) != null && resolveGlyphsStyleUrl(context) != null
+        return resolvePrefetchedSpriteAndGlyphs(tileserverOrigin.trimEnd('/'), context) != null ||
+            (resolveBundledSpriteStyleUrl(context) != null && resolveBundledGlyphsStyleUrl(context) != null)
     }
+
+    fun isTileserverSpriteOrGlyphUrl(url: HttpUrl): Boolean =
+        assetPathForTileserverHttpUrl(url) != null
 
     /**
-     * Returns a response body when [url] is a tileserver sprite/glyph request that can be served
-     * from APK assets or the materialized cache pack.
+     * Serves tileserver sprite/glyph HTTP when offline: prefetched pack first, then APK assets.
+     * Callers should try OkHttp [CacheControl.FORCE_CACHE] before this.
      */
-    fun createLocalHttpResponseBody(context: Context, url: HttpUrl): okhttp3.ResponseBody? {
-        val bytes = readLocalHttpResourceBytes(context.applicationContext, url) ?: return null
-        val mediaType = when {
-            url.encodedPath.endsWith(".json") -> "application/json"
-            url.encodedPath.endsWith(".png") -> "image/png"
-            url.encodedPath.endsWith(".pbf") -> "application/x-protobuf"
-            else -> "application/octet-stream"
-        }.toMediaType()
-        return bytes.toResponseBody(mediaType)
+    fun createOfflineHttpResponseBody(context: Context, url: HttpUrl): okhttp3.ResponseBody? {
+        val bytes = readOfflineHttpResourceBytes(context.applicationContext, url) ?: return null
+        return bytes.toResponseBody(mediaTypeForUrl(url))
     }
 
-    private fun readLocalHttpResourceBytes(context: Context, url: HttpUrl): ByteArray? {
+    private fun mediaTypeForUrl(url: HttpUrl) = when {
+        url.encodedPath.endsWith(".json") -> "application/json"
+        url.encodedPath.endsWith(".png") -> "image/png"
+        url.encodedPath.endsWith(".pbf") -> "application/x-protobuf"
+        else -> "application/octet-stream"
+    }.toMediaType()
+
+    private fun readOfflineHttpResourceBytes(context: Context, url: HttpUrl): ByteArray? {
+        readPrefetchHttpResourceBytes(context, url)?.let { return it }
+        return readBundledHttpResourceBytes(context, url)
+    }
+
+    private fun readPrefetchHttpResourceBytes(context: Context, url: HttpUrl): ByteArray? {
+        val assetPath = assetPathForTileserverHttpUrl(url) ?: return null
+        val parent = File(context.applicationContext.filesDir, PREFETCH_ROOT_DIR)
+        if (!parent.isDirectory) return null
+        for (slugDir in parent.listFiles().orEmpty()) {
+            if (!slugDir.isDirectory) continue
+            val file = localFileForAssetPath(slugDir, assetPath)
+            if (file.isFile && file.length() > 0L) {
+                return runCatching { file.readBytes() }.getOrNull()
+            }
+        }
+        return null
+    }
+
+    private fun readBundledHttpResourceBytes(context: Context, url: HttpUrl): ByteArray? {
         val assetPath = assetPathForTileserverHttpUrl(url) ?: return null
         readAssetBytes(context, assetPath)?.let { return it }
         ensureAssetPackMaterialized(context)
@@ -156,7 +236,7 @@ internal object TileserverBundledResources {
         return null
     }
 
-    private fun assetPathForTileserverHttpUrl(url: HttpUrl): String? {
+    internal fun assetPathForTileserverHttpUrl(url: HttpUrl): String? {
         val segments = url.encodedPath.trim('/').split('/').filter { it.isNotEmpty() }
         val tileserverIndex = segments.indexOf("tileserver")
         if (tileserverIndex < 0 || tileserverIndex + 1 >= segments.size) return null
@@ -185,17 +265,17 @@ internal object TileserverBundledResources {
     private fun readAssetBytes(context: Context, assetPath: String): ByteArray? =
         runCatching { context.assets.open(assetPath).use { it.readBytes() } }.getOrNull()
 
-    private fun resolveSpriteStyleUrl(context: Context): String? {
+    private fun resolveBundledSpriteStyleUrl(context: Context): String? {
         if (hasBundledAssetSprites(context)) return assetSpriteUrl()
         ensureAssetPackMaterialized(context)
         resolveSpriteFileBase(localResourcesRoot(context))?.let { return fileUrl(it) }
         return null
     }
 
-    private fun resolveGlyphsStyleUrl(context: Context): String? {
+    private fun resolveBundledGlyphsStyleUrl(context: Context): String? {
         if (hasBundledAssetFonts(context)) return assetGlyphsUrl()
         ensureAssetPackMaterialized(context)
-        resolveGlyphsFileTemplate(localResourcesRoot(context))?.let { return it }
+        resolveGlyphsFileTemplate(localResourcesRoot(context).resolve("font"))?.let { return it }
         return null
     }
 
@@ -277,8 +357,7 @@ internal object TileserverBundledResources {
         return root.resolve(SPRITE_BASENAME)
     }
 
-    private fun resolveGlyphsFileTemplate(root: File): String? {
-        val fontDir = root.resolve("font")
+    private fun resolveGlyphsFileTemplate(fontDir: File): String? {
         if (!isValidGlyphTree(fontDir)) return null
         return fileUrl(fontDir) + "/{fontstack}/{range}.pbf"
     }
@@ -344,10 +423,11 @@ internal object TileserverBundledResources {
         val remoteBase = "$origin/tileserver/sprite/$SPRITE_BASENAME"
         downloadToFile("$remoteBase.json", File(root, "$SPRITE_BASENAME.json"))
         downloadToFile("$remoteBase.png", File(root, "$SPRITE_BASENAME.png"))
+        downloadToFile("$remoteBase@2x.json", File(root, "$SPRITE_BASENAME@2x.json"))
         downloadToFile("$remoteBase@2x.png", File(root, "$SPRITE_BASENAME@2x.png"))
-        val json = File(root, "$SPRITE_BASENAME.json")
-        if (json.isFile) {
-            json.copyTo(File(root, "$SPRITE_BASENAME@2x.json"), overwrite = true)
+        val retinaJson = File(root, "$SPRITE_BASENAME@2x.json")
+        if (!retinaJson.isFile) {
+            File(root, "$SPRITE_BASENAME.json").takeIf { it.isFile }?.copyTo(retinaJson, overwrite = true)
         }
     }
 

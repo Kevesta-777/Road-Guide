@@ -6,8 +6,9 @@ import kotlin.coroutines.coroutineContext
 
 internal object DirectionsRouteAnimation {
 
-    const val FETCH_DEBOUNCE_MS = 180L
-    const val REVEAL_DURATION_MS = 1_400
+    const val FETCH_DEBOUNCE_MS = 50L
+    const val REVEAL_DURATION_MS = 1_400L
+    const val REFINE_REVEAL_DURATION_MS = 500L
     const val CAMERA_DURATION_MS = 900
     private const val FRAME_MS = 16L
 
@@ -17,11 +18,14 @@ internal object DirectionsRouteAnimation {
         return 1f - inv * inv * inv
     }
 
-    suspend fun animateReveal(onProgress: suspend (Float) -> Unit) {
+    suspend fun animateReveal(
+        durationMs: Long = REVEAL_DURATION_MS,
+        onProgress: suspend (Float) -> Unit,
+    ) {
         val start = System.currentTimeMillis()
         while (coroutineContext.isActive) {
             val elapsed = System.currentTimeMillis() - start
-            val linear = (elapsed.toFloat() / REVEAL_DURATION_MS).coerceIn(0f, 1f)
+            val linear = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
             val eased = easeOutCubic(linear)
             onProgress(eased)
             if (linear >= 1f) break

@@ -15,6 +15,8 @@ haze = "1.5.3"
 zxing = "3.5.3"
 mlkitBarcode = "17.3.0"
 camerax = "1.4.2"
+graphhopper = "7.0"
+documentfile = "1.1.0"
 coil = "2.7.0"
 
 [libraries]
@@ -45,6 +47,8 @@ androidx-camera-core = { group = "androidx.camera", name = "camera-core", versio
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+graphhopper-core = { group = "com.graphhopper", name = "graphhopper-core", version.ref = "graphhopper" }
+androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 [plugins]

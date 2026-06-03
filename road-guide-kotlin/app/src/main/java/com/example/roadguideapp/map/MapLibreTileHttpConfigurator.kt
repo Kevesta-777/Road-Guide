@@ -9,7 +9,7 @@ import org.maplibre.android.module.http.HttpRequestUtil
  * Applies a disk-backed [OkHttpClient] cache to MapLibre’s tile/font/sprite HTTP downloads so
  * previously fetched resources can be reused for the same tileserver URLs without hitting the wire.
  * Sprites/glyphs use the live tileserver when reachable; [MapLibreBundledResourceInterceptor]
- * only substitutes APK assets when the server is down.
+ * serves OkHttp cache, tileserver prefetch, then APK assets when the server is down.
  */
 internal object MapLibreTileHttpConfigurator {
 

@@ -92,7 +92,7 @@ Filter logcat: `package:com.example.roadguideapp` and tags `PmtilesOverviewSourc
 
 **Offline detail (z11+):** After visiting a region online, the app stores the dual-tier style in `TileserverLocationDiskCache` and vector tiles/sprites in the OkHttp disk cache (`maplibre_okhttp_disk_cache`). With the tileserver stopped, reload the app — style mode `CachedHybrid` serves cached buildings/POIs for that region.
 
-**Offline labels (z0–11):** Bundled `assets/map/basic.json` + PMTiles; sprites/glyphs are copied to `filesDir/map_offline_resources/` on first online load (or served from OkHttp cache if URLs were fetched before).
+**Offline sprites/glyphs:** On first online load, tileserver sprites/glyphs are prefetched to `filesDir/map_offline_resources/`. In cached-hybrid offline mode the app uses that pack (or the OkHttp disk cache for the saved style URLs), not the APK bundle, so POI icons match cached vector tiles.
 
 ## Troubleshooting “Could not load tileserver style” (HTTP 404)
 

@@ -41,8 +41,30 @@ internal sealed class AppleMapSheet {
         val origin: MapPlaceDetail,
         val stops: List<MapPlaceDetail> = emptyList(),
         val travelMode: DirectionsTravelMode = DirectionsTravelMode.Drive,
+        /** Full trip in visit order (start → … → current destination) for cumulative routing. */
+        val tripWaypoints: List<MapPlaceDetail> = listOf(origin),
     ) : AppleMapSheet() {
         override val stackId: String = "directions"
+
+        val destination: MapPlaceDetail? get() = stops.lastOrNull()
+
+        /**
+         * Adds [place] as the new destination. The previous destination becomes the new origin
+         * (sheet shows B→C), while [tripWaypoints] grows so the map can draw every leg (A→B→C…).
+         */
+        fun withRotatedDestination(place: MapPlaceDetail): Directions {
+            val previousDestination = stops.lastOrNull()
+            val extendedTrip = tripWaypoints + place
+            return if (previousDestination == null) {
+                copy(stops = listOf(place), tripWaypoints = extendedTrip)
+            } else {
+                copy(
+                    origin = previousDestination,
+                    stops = listOf(place),
+                    tripWaypoints = extendedTrip,
+                )
+            }
+        }
     }
 
     data object AddStop : AppleMapSheet() {
@@ -132,6 +154,15 @@ internal class AppleMapsSheetStackState(
         }
     }
 
+    /** Closes Add Stop search and destination place sheets after a stop is confirmed. */
+    fun popAddStopOverlays() {
+        while (layers.lastOrNull()?.sheet is AppleMapSheet.AddStop ||
+            layers.lastOrNull()?.sheet is AppleMapSheet.PlaceDetail
+        ) {
+            pop()
+        }
+    }
+
     fun clearToHome() {
         layers = listOf(AppleMapSheetLayer(AppleMapSheet.Home, AppleSheetSnap.Peek))
         nextPresentationKey = 1
@@ -200,6 +231,7 @@ internal class AppleMapsSheetStackState(
         origin: MapPlaceDetail,
         stops: List<MapPlaceDetail>,
         travelMode: DirectionsTravelMode? = null,
+        tripWaypoints: List<MapPlaceDetail>? = null,
     ) {
         layers = layers.map { layer ->
             if (layer.sheet is AppleMapSheet.Directions) {
@@ -209,6 +241,7 @@ internal class AppleMapsSheetStackState(
                         origin = origin,
                         stops = stops,
                         travelMode = travelMode ?: prev.travelMode,
+                        tripWaypoints = tripWaypoints ?: prev.tripWaypoints,
                     ),
                 )
             } else {

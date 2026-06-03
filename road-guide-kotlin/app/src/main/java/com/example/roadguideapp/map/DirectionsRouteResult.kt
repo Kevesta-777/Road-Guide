@@ -12,4 +12,7 @@ internal data class DirectionsRouteResult(
     val legs: List<DirectionsRouteLeg>,
     val totalDurationSeconds: Double,
     val totalLengthKm: Double,
-)
+) {
+    fun withMapDisplayGeometry(): DirectionsRouteResult =
+        copy(geometry = DirectionsRouteGeometry.prepareForMapDisplay(geometry))
+}

@@ -2,6 +2,7 @@ package com.example.roadguideapp.map
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -9,13 +10,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +38,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -58,6 +65,9 @@ import com.example.roadguideapp.auth.OfflineAuthStore
 import com.example.roadguideapp.auth.OfflineFriendsStore
 import com.example.roadguideapp.auth.UserProfileSheetContent
 import com.example.roadguideapp.auth.identifierAbbreviation
+import com.example.roadguideapp.offlinegraph.OfflineGraphEngine
+import com.example.roadguideapp.offlinegraph.toDisplayString
+import com.example.roadguideapp.offlinegraph.userMessage
 import dev.chrisbanes.haze.ExperimentalHazeApi
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -133,8 +143,6 @@ fun MapLibreMbTilesMap(
     val syncedStackSnap = sheetStack.currentSyncedSnap()
     val effectiveSheetHeightDp = syncedSheetHeightDp
     val bottomChromePadding = effectiveSheetHeightDp + 12.dp
-    val showBottomMapChrome = syncedStackSnap != AppleSheetSnap.Large
-    val showTopRightChrome = syncedStackSnap != AppleSheetSnap.Large
 
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
     var mapReady by remember { mutableStateOf(false) }
@@ -171,8 +179,241 @@ fun MapLibreMbTilesMap(
     var businessEditPoiId by remember { mutableStateOf<String?>(null) }
     var claimRequestInFlight by remember { mutableStateOf(false) }
     val resolvedBackendPoiIds = remember { mutableStateMapOf<String, String>() }
+    var routePlanTick by remember { mutableIntStateOf(0) }
+    var showOfflineGraphImportAlert by remember { mutableStateOf(false) }
+    var showOfflineRoutingRequiredAlert by remember { mutableStateOf(false) }
+    var graphImportInProgress by remember { mutableStateOf(false) }
+    var graphRestoreInProgress by remember { mutableStateOf(false) }
+    var graphImportStatusMessage by remember { mutableStateOf("") }
+    var graphImportProgressPercent by remember { mutableStateOf<Int?>(null) }
+    var offlineGraphLoaded by remember { mutableStateOf(false) }
+    var activeRouteResult by remember { mutableStateOf<DirectionsRouteResult?>(null) }
+    var activeRouteSource by remember { mutableStateOf<DirectionsRouteSource?>(null) }
+    var isRouteCalculating by remember { mutableStateOf(false) }
+    var isRouteRefining by remember { mutableStateOf(false) }
+    var isNavigationActive by remember { mutableStateOf(false) }
+    var navVehiclePosition by remember { mutableStateOf<LatLng?>(null) }
+    var navVehicleBearing by remember { mutableFloatStateOf(0f) }
+    var navCameraHolder by remember { mutableStateOf<DirectionsNavigationCamera?>(null) }
+    var navTiltDegrees by remember { mutableDoubleStateOf(DirectionsNavConfig.DEFAULT_TILT_DEG) }
+    val navDisplaySmoother = remember { DirectionsNavigationDisplaySmoother() }
+    var navRouteGeometry by remember { mutableStateOf<List<LatLng>>(emptyList()) }
 
     val activeDirections = sheetStack.activeDirections()
+
+    fun clearActiveRouteOverlay() {
+        activeRouteResult = null
+        activeRouteSource = null
+        controller.mapRuntime?.let { (_, style) ->
+            val mv = mapViewRef.value
+            val clear = { DirectionsRouteOverlay.remove(style) }
+            if (mv != null) mv.post(clear) else clear()
+        }
+        controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+    }
+
+    val onAddStopRequested: () -> Unit = {
+        clearActiveRouteOverlay()
+        sheetStack.popAddStopOverlays()
+        val offlineReady = offlineGraphLoaded && OfflineGraphEngine.isLoaded()
+        if (offlineReady) {
+            sheetStack.push(AppleMapSheet.AddStop)
+        } else {
+            showOfflineRoutingRequiredAlert = true
+        }
+    }
+
+    val activeRouteResultState = rememberUpdatedState(activeRouteResult)
+    val activeDirectionsForNav = rememberUpdatedState(activeDirections)
+    val isNavigationActiveState = rememberUpdatedState(isNavigationActive)
+    val navRouteGeometryState = rememberUpdatedState(navRouteGeometry)
+    val endNavigationRef = remember { mutableStateOf<() -> Unit>({}) }
+    val navUserZoomGestureRef = remember { mutableStateOf(false) }
+
+    val navigationEngine = remember(coroutineScope) {
+        DirectionsNavigationEngine(
+            onUpdate = { frame, progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    if (!isNavigationActiveState.value) return@launch
+                    val routeLine = navRouteGeometryState.value
+                    val displayFrame = DirectionsNavigationFrameResolver.resolveDisplayFrame(
+                        engineFrame = frame,
+                        route = routeLine,
+                        smoother = navDisplaySmoother,
+                    )
+                    navVehiclePosition = LatLng(displayFrame.lat, displayFrame.lng)
+                    navVehicleBearing = displayFrame.bearingDegrees.toFloat()
+                    val runtime = controller.mapRuntime
+                    val directions = activeDirectionsForNav.value
+                    val route = activeRouteResultState.value
+                    if (runtime != null && directions != null && route != null && routeLine.size >= 2) {
+                        val (_, style) = runtime
+                        val tripOrigin = directions.tripWaypoints.first()
+                        val tripStops = directions.tripWaypoints.drop(1)
+                        if (!isNavigationActiveState.value) return@launch
+                        if (!navUserZoomGestureRef.value) {
+                            navCameraHolder?.follow(displayFrame)
+                        }
+                        DirectionsNavigationFrameResolver.syncNavigationVisuals(
+                            style = style,
+                            route = routeLine,
+                            frame = displayFrame,
+                            origin = tripOrigin,
+                            stops = tripStops,
+                            valhallaRoute = route,
+                        )
+                        controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+                    }
+                }
+            },
+            onRouteComplete = {
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    if (!isNavigationActiveState.value) return@launch
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.directions_navigation_arrived),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    endNavigationRef.value()
+                }
+            },
+        )
+    }
+
+    fun currentNavFrame(): DirectionsNavFrame? {
+        val pos = navVehiclePosition ?: return null
+        return DirectionsNavFrame(
+            lat = pos.latitude,
+            lng = pos.longitude,
+            bearingDegrees = navVehicleBearing.toDouble(),
+            cumulativeDistanceM = navigationEngine.currentDistanceM(),
+        )
+    }
+
+    fun refreshNavCamera() {
+        currentNavFrame()?.let { frame -> navCameraHolder?.refreshCameraNow(frame) }
+    }
+
+    fun endNavigationSession() {
+        isNavigationActive = false
+        navigationEngine.stop()
+        navDisplaySmoother.clear()
+        navRouteGeometry = emptyList()
+        navCameraHolder?.exit()
+        navCameraHolder = null
+        navVehiclePosition = null
+        navVehicleBearing = 0f
+        controller.mapRuntime?.let { (map, style) ->
+            DirectionsNavigationVehicleLayer.remove(style)
+            map.uiSettings.apply {
+                isScrollGesturesEnabled = true
+                isRotateGesturesEnabled = true
+                isTiltGesturesEnabled = true
+                isZoomGesturesEnabled = true
+            }
+            MapStyleRuntime.apply3dVisuals(map, style, is3d)
+            val directions = activeDirections
+            val route = activeRouteResult
+            if (directions != null && route != null && route.geometry.size >= 2) {
+                val tripOrigin = directions.tripWaypoints.first()
+                val tripStops = directions.tripWaypoints.drop(1)
+                DirectionsRouteOverlay.sync(
+                    style = style,
+                    origin = tripOrigin,
+                    stops = tripStops,
+                    valhallaRoute = route,
+                    revealProgress = 1f,
+                )
+            }
+        }
+        controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+    }
+
+    fun startNavigationSession() {
+        val route = activeRouteResult
+        val directions = activeDirections
+        val runtime = controller.mapRuntime
+        if (route == null || directions == null || runtime == null || route.geometry.size < 2) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.directions_navigation_failed),
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        val (map, style) = runtime
+        isNavigationActive = true
+        is3d = true
+        sheetStack.updateAllSyncedSnaps(AppleSheetSnap.Peek)
+        MapStyleRuntime.apply3dVisuals(map, style, enabled = true)
+        map.uiSettings.apply {
+            isScrollGesturesEnabled = false
+            isRotateGesturesEnabled = false
+            isTiltGesturesEnabled = false
+            isZoomGesturesEnabled = true
+        }
+        val mapViewHeight = mapViewRef.value?.height ?: 0
+        val camera = DirectionsNavigationCamera(map) {
+            (mapViewRef.value?.height ?: mapViewHeight).coerceAtLeast(1)
+        }
+        navCameraHolder = camera
+        navTiltDegrees = DirectionsNavConfig.DEFAULT_TILT_DEG
+        val navGeometry = route.geometry
+        navRouteGeometry = navGeometry
+        val initialSpeed = DirectionsNavConfig.speedMps(directions.travelMode)
+        navigationEngine.speedMps = initialSpeed
+        navigationEngine.loadGeometry(navGeometry, resetPosition = true)
+        val firstFrame = DirectionsNavFrame(
+            lat = navGeometry.first().latitude,
+            lng = navGeometry.first().longitude,
+            bearingDegrees = bearingDegrees(
+                navGeometry[0].latitude,
+                navGeometry[0].longitude,
+                navGeometry[1].latitude,
+                navGeometry[1].longitude,
+            ),
+            cumulativeDistanceM = 0.0,
+        )
+        navDisplaySmoother.reset(firstFrame, navGeometry)
+        val displayFrame = DirectionsNavigationFrameResolver.resolveDisplayFrame(
+            engineFrame = firstFrame,
+            route = navGeometry,
+            smoother = navDisplaySmoother,
+        )
+        navVehiclePosition = LatLng(displayFrame.lat, displayFrame.lng)
+        navVehicleBearing = displayFrame.bearingDegrees.toFloat()
+        val tripOrigin = directions.tripWaypoints.first()
+        val tripStops = directions.tripWaypoints.drop(1)
+        DirectionsNavigationFrameResolver.syncNavigationVisuals(
+            style = style,
+            route = navGeometry,
+            frame = displayFrame,
+            origin = tripOrigin,
+            stops = tripStops,
+            valhallaRoute = route,
+        )
+        camera.enter(displayFrame)
+        if (!navigationEngine.start()) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.directions_navigation_failed),
+                Toast.LENGTH_LONG,
+            ).show()
+            endNavigationSession()
+            return
+        }
+        Toast.makeText(
+            context,
+            context.getString(R.string.directions_navigation_started),
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    endNavigationRef.value = { endNavigationSession() }
+
+    val showBottomMapChrome = !isNavigationActive && syncedStackSnap != AppleSheetSnap.Large
+    val showTopRightChrome = !isNavigationActive && syncedStackSnap != AppleSheetSnap.Large
+
     val activeDirectionsState = rememberUpdatedState(activeDirections)
     val activeNearbyCategoryState = rememberUpdatedState(controller.activeNearbyCategory)
     val bottomChromePaddingState = rememberUpdatedState(bottomChromePadding)
@@ -205,6 +446,141 @@ fun MapLibreMbTilesMap(
                 controller.mapLibreMap,
                 locationFallbackLatLng,
             )
+        }
+    }
+
+    fun persistGraphUri(uri: android.net.Uri) {
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        } catch (_: SecurityException) {
+            // Some providers do not allow persistable permissions.
+        }
+    }
+
+    fun runOfflineGraphImport(
+        initialStatusRes: Int,
+        import: suspend () -> Result<String>,
+    ) {
+        coroutineScope.launch {
+            graphImportInProgress = true
+            graphImportProgressPercent = null
+            showOfflineGraphImportAlert = false
+            graphImportStatusMessage = context.getString(initialStatusRes)
+            mapViewRef.value?.onPause()
+            val importResult = withContext(Dispatchers.IO) {
+                runCatching { import().getOrThrow() }
+            }
+            mapViewRef.value?.onResume()
+            graphImportInProgress = false
+            graphImportStatusMessage = ""
+            graphImportProgressPercent = null
+            importResult.fold(
+                onSuccess = {
+                    offlineGraphLoaded = OfflineGraphEngine.isLoaded()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.directions_offline_import_success),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    if (activeDirections != null && OfflineGraphEngine.isLoaded()) {
+                        routePlanTick++
+                        coroutineScope.launch {
+                            kotlinx.coroutines.delay(400)
+                            routePlanTick++
+                        }
+                    } else {
+                        routePlanTick++
+                    }
+                },
+                onFailure = { error ->
+                    Toast.makeText(
+                        context,
+                        context.getString(
+                            R.string.directions_offline_import_failed,
+                            error.userMessage(),
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+            )
+        }
+    }
+
+    val graphFolderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) {
+            graphImportInProgress = false
+            return@rememberLauncherForActivityResult
+        }
+        persistGraphUri(uri)
+        runOfflineGraphImport(R.string.directions_offline_import_copying_folder) {
+            OfflineGraphEngine.importGraphFolder(
+                context = context,
+                resolver = context.contentResolver,
+                folderTreeUri = uri,
+            ) { progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    graphImportStatusMessage = progress.toDisplayString(context)
+                    graphImportProgressPercent = progress.percent
+                }
+            }
+        }
+    }
+
+    val graphZipPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) {
+            graphImportInProgress = false
+            return@rememberLauncherForActivityResult
+        }
+        persistGraphUri(uri)
+        runOfflineGraphImport(R.string.directions_offline_import_extracting) {
+            OfflineGraphEngine.importGraphZip(
+                context = context,
+                resolver = context.contentResolver,
+                zipUri = uri,
+            ) { progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    graphImportStatusMessage = progress.toDisplayString(context)
+                    graphImportProgressPercent = progress.percent
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(offlineGraphLoaded) {
+        if (OfflineGraphEngine.isLoaded()) {
+            offlineGraphLoaded = true
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!DirectionsRoutingService.hasSavedGraph(context)) return@LaunchedEffect
+        if (OfflineGraphEngine.isLoaded()) {
+            offlineGraphLoaded = true
+            return@LaunchedEffect
+        }
+        graphRestoreInProgress = true
+        graphImportStatusMessage = context.getString(R.string.directions_offline_import_restoring)
+        val loaded = withContext(Dispatchers.IO) {
+            DirectionsRoutingService.awaitOfflineGraphReady(context) { progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    graphImportStatusMessage = progress.toDisplayString(context)
+                    graphImportProgressPercent = progress.percent
+                }
+            }
+        }
+        graphRestoreInProgress = false
+        graphImportStatusMessage = ""
+        graphImportProgressPercent = null
+        offlineGraphLoaded = loaded
+        if (loaded && activeDirections != null) {
+            routePlanTick++
         }
     }
 
@@ -310,29 +686,90 @@ fun MapLibreMbTilesMap(
 
     LaunchedEffect(
         controller.mapRuntime,
+        activeRouteResult,
+        activeDirections?.tripWaypoints?.map { it.id },
+        isNavigationActive,
+    ) {
+        if (isNavigationActive) return@LaunchedEffect
+        val runtime = controller.mapRuntime ?: return@LaunchedEffect
+        val (_, style) = runtime
+        val directions = activeDirections ?: return@LaunchedEffect
+        val route = activeRouteResult ?: return@LaunchedEffect
+        if (route.geometry.size < 2) return@LaunchedEffect
+        val mv = mapViewRef.value
+        val tripOrigin = directions.tripWaypoints.first()
+        val tripStops = directions.tripWaypoints.drop(1)
+        val redraw = Runnable {
+            DirectionsRouteOverlay.sync(
+                style = style,
+                origin = tripOrigin,
+                stops = tripStops,
+                valhallaRoute = route,
+                revealProgress = 1f,
+            )
+            controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+        }
+        if (mv != null) mv.post(redraw) else redraw.run()
+    }
+
+    LaunchedEffect(
+        controller.mapRuntime,
+        graphImportInProgress,
+        graphRestoreInProgress,
+    ) {
+        if (!graphImportInProgress && !graphRestoreInProgress) return@LaunchedEffect
+        val runtime = controller.mapRuntime ?: return@LaunchedEffect
+        val (_, style) = runtime
+        val mv = mapViewRef.value
+        activeRouteResult = null
+        activeRouteSource = null
+        val clear = { DirectionsRouteOverlay.remove(style) }
+        if (mv != null) mv.post(clear) else clear()
+    }
+
+    LaunchedEffect(
+        controller.mapRuntime,
         activeDirections?.origin?.id,
         activeDirections?.stops?.map { it.id },
+        activeDirections?.tripWaypoints?.map { it.id },
         activeDirections?.travelMode,
         bottomChromePadding,
+        routePlanTick,
+        offlineGraphLoaded,
+        graphImportInProgress,
+        graphRestoreInProgress,
+        isNavigationActive,
     ) {
+        if (isNavigationActive) return@LaunchedEffect
+        if (graphImportInProgress || graphRestoreInProgress) return@LaunchedEffect
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
         val (map, style) = runtime
         val mv = mapViewRef.value
         val directions = activeDirections
         if (directions == null) {
             controller.activeRouteGeometry = null
+            activeRouteResult = null
+            activeRouteSource = null
+            isRouteCalculating = false
+            isRouteRefining = false
             val clear = { DirectionsRouteOverlay.remove(style) }
             if (mv != null) mv.post(clear) else clear()
             return@LaunchedEffect
         }
-        val waypoints = listOf(directions.origin.latLng) + directions.stops.map { it.latLng }
-        if (waypoints.size < 2) {
+        if (directions.tripWaypoints.size < 2) {
+            activeRouteResult = null
+            activeRouteSource = null
+            isRouteCalculating = false
+            isRouteRefining = false
             val clear = { DirectionsRouteOverlay.remove(style) }
             if (mv != null) mv.post(clear) else clear()
             return@LaunchedEffect
         }
 
         delay(DirectionsRouteAnimation.FETCH_DEBOUNCE_MS)
+        isRouteCalculating = true
+        isRouteRefining = DirectionsRoutingService.hasSavedGraph(context) &&
+            !OfflineGraphEngine.isLoaded()
 
         val valhallaRoute = ValhallaRouteClient.fetchRoute(waypoints, directions.travelMode)
         val fullGeometry = valhallaRoute?.geometry?.takeIf { it.size >= 2 }
@@ -349,20 +786,106 @@ fun MapLibreMbTilesMap(
         val fitPoints = buildList {
             addAll(waypoints)
             addAll(fullGeometry)
+        val planOutcome = withContext(Dispatchers.IO) {
+            DirectionsRoutingService.planDirectionsRoute(
+                context = context,
+                origin = directions.origin,
+                stops = directions.stops,
+                mode = directions.travelMode,
+                tripWaypoints = directions.tripWaypoints,
+            ) { progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    if (!OfflineGraphEngine.isLoaded()) {
+                        graphRestoreInProgress = true
+                        graphImportStatusMessage = progress.toDisplayString(context)
+                        graphImportProgressPercent = progress.percent
+                    }
+                }
+            }
         }
-        val routeBounds = DirectionsRouteGeometry.boundsFor(fitPoints)
+
+        graphRestoreInProgress = false
+        graphImportStatusMessage = ""
+        graphImportProgressPercent = null
+        isRouteCalculating = false
+        isRouteRefining = false
+
+        val useFullTrip = directions.tripWaypoints.size >= 2
+        val displayStops = if (
+            !useFullTrip &&
+            planOutcome.optimizedStops.map { it.id } != directions.stops.map { it.id }
+        ) {
+            sheetStack.updateDirections(
+                directions.origin,
+                planOutcome.optimizedStops,
+                travelMode = directions.travelMode,
+            )
+            planOutcome.optimizedStops
+        } else {
+            directions.stops
+        }
+
+        val route = planOutcome.result
+        if (route == null || route.geometry.size < 2) {
+            activeRouteResult = null
+            activeRouteSource = null
+            val clear = { DirectionsRouteOverlay.remove(style) }
+            if (mv != null) mv.post(clear) else clear()
+            if (routePlanTick > 0) {
+                val offlineGraphReady = OfflineGraphEngine.isLoaded()
+                val message = when {
+                    DirectionsRoutingService.hasSavedGraph(context) && offlineGraphReady ->
+                        context.getString(R.string.directions_offline_route_failed)
+                    planOutcome.source == DirectionsRouteSource.Unavailable && !offlineGraphReady ->
+                        null
+                    planOutcome.source == DirectionsRouteSource.Unavailable ->
+                        context.getString(R.string.directions_routing_unavailable)
+                    else -> context.getString(R.string.directions_route_failed)
+                }
+                message?.let { text ->
+                    Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+                }
+            }
+            return@LaunchedEffect
+        }
+
+        activeRouteResult = route
+        activeRouteSource = planOutcome.source
+        offlineGraphLoaded = OfflineGraphEngine.isLoaded()
 
         val bottomPaddingPx = with(density) { bottomChromePaddingState.value.roundToPx() }
+
+        val tripOrigin = directions.tripWaypoints.first()
+        val tripStops = directions.tripWaypoints.drop(1)
 
         fun applyFrame(progress: Float) {
             DirectionsRouteOverlay.sync(
                 style = style,
-                origin = directions.origin,
-                stops = directions.stops,
-                valhallaRoute = valhallaRoute,
+                origin = tripOrigin,
+                stops = tripStops,
+                valhallaRoute = route,
                 revealProgress = progress,
             )
-            controller.mapOverlayCameraTick++
+            controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+        }
+
+        // Draw full route immediately so it stays visible if reveal animation is interrupted.
+        val showFullRoute = Runnable { applyFrame(1f) }
+        if (mv != null) {
+            mv.post(showFullRoute)
+        } else {
+            showFullRoute.run()
+        }
+
+        val fitPoints = buildList {
+            addAll(directions.tripWaypoints.map { it.latLng })
+            addAll(route.geometry)
+        }
+        val routeBounds = DirectionsRouteGeometry.boundsFor(fitPoints)
+
+        val revealDuration = when (planOutcome.source) {
+            DirectionsRouteSource.Preview -> DirectionsRouteAnimation.REFINE_REVEAL_DURATION_MS
+            else -> DirectionsRouteAnimation.REVEAL_DURATION_MS
         }
 
         coroutineScope {
@@ -380,7 +903,7 @@ fun MapLibreMbTilesMap(
                 }
             }
             launch {
-                DirectionsRouteAnimation.animateReveal { progress ->
+                DirectionsRouteAnimation.animateReveal(durationMs = revealDuration) { progress ->
                     val frame = { applyFrame(progress) }
                     if (mv != null) mv.post(frame) else frame()
                 }
@@ -412,6 +935,7 @@ fun MapLibreMbTilesMap(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            navigationEngine.stop()
             applyMapBackdropBlur(mapViewRef.value, 0f)
             mapViewRef.value?.onDestroy()
             mapViewRef.value = null
@@ -430,6 +954,29 @@ fun MapLibreMbTilesMap(
             map.easeCamera(CameraUpdateFactory.zoomTo(next), MapConstants.ZOOM_ANIMATION_MS)
         }
     }
+    val navZoomIn: () -> Unit = {
+        navCameraHolder?.adjustZoom(DirectionsNavConfig.ZOOM_STEP)
+        refreshNavCamera()
+    }
+    val navZoomOut: () -> Unit = {
+        navCameraHolder?.adjustZoom(-DirectionsNavConfig.ZOOM_STEP)
+        refreshNavCamera()
+    }
+    val navTiltUp: () -> Unit = {
+        navCameraHolder?.adjustTilt(DirectionsNavConfig.TILT_STEP_DEG)
+        navTiltDegrees = navCameraHolder?.tiltDegrees ?: navTiltDegrees
+        refreshNavCamera()
+    }
+    val navTiltDown: () -> Unit = {
+        navCameraHolder?.adjustTilt(-DirectionsNavConfig.TILT_STEP_DEG)
+        navTiltDegrees = navCameraHolder?.tiltDegrees ?: navTiltDegrees
+        refreshNavCamera()
+    }
+
+    val isNavigationActiveRef = rememberUpdatedState(isNavigationActive)
+    val navCameraHolderRef = rememberUpdatedState(navCameraHolder)
+    val navVehiclePositionRef = rememberUpdatedState(navVehiclePosition)
+    val navVehicleBearingRef = rememberUpdatedState(navVehicleBearing)
 
     MapSearchAutocompleteEffect(controller)
     MapNearbyHighlightsEffect(controller)
@@ -524,7 +1071,13 @@ fun MapLibreMbTilesMap(
                                         if (!needsOverlay) return
                                         mapView.post { controller.mapOverlayCameraTick++ }
                                     }
-                                    map.addOnCameraMoveStartedListener {
+                                    map.addOnCameraMoveStartedListener { reason ->
+                                        if (
+                                            isNavigationActiveRef.value &&
+                                            reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE
+                                        ) {
+                                            navUserZoomGestureRef.value = true
+                                        }
                                         syncExtrusionDuring3d(suppressForCameraMotion = true)
                                     }
                                     map.addOnCameraMoveListener {
@@ -540,6 +1093,24 @@ fun MapLibreMbTilesMap(
                                         publishScaleRuler()
                                         publishMapOverlayPositions()
                                         syncExtrusionDuring3d(suppressForCameraMotion = false)
+                                        if (isNavigationActiveRef.value && navUserZoomGestureRef.value) {
+                                            navUserZoomGestureRef.value = false
+                                            val pos = navVehiclePositionRef.value
+                                            val camera = navCameraHolderRef.value
+                                            if (pos != null && camera != null) {
+                                                val frame = DirectionsNavFrame(
+                                                    lat = pos.latitude,
+                                                    lng = pos.longitude,
+                                                    bearingDegrees = navVehicleBearingRef.value.toDouble(),
+                                                    cumulativeDistanceM = 0.0,
+                                                )
+                                                camera.syncUserZoomFromMap(
+                                                    frame,
+                                                    map.cameraPosition.zoom,
+                                                )
+                                                camera.follow(frame)
+                                            }
+                                        }
                                         MapDataTierLogger.logZoomTierIfChanged(
                                             map.cameraPosition.zoom.toDouble(),
                                             controller.mapStyleMode,
@@ -555,11 +1126,13 @@ fun MapLibreMbTilesMap(
                 update = { },
             )
 
-            DirectionsWaypointMarkersOverlay(
-                directions = activeDirections,
-                map = controller.mapLibreMap,
-                cameraTick = controller.mapOverlayCameraTick,
-            )
+            if (!isNavigationActive) {
+                DirectionsWaypointMarkersOverlay(
+                    directions = activeDirections,
+                    map = controller.mapLibreMap,
+                    cameraTick = controller.mapOverlayCameraTick,
+                )
+            }
 
             NearbyCategoryMarkersOverlay(
                 category = controller.activeNearbyCategory,
@@ -681,8 +1254,13 @@ fun MapLibreMbTilesMap(
                         is AppleMapSheet.PlaceDetail -> {
                             val place = sheet.place
                             val directions = activeDirections
+                            val currentDestinationId = directions?.destination?.id
                             val primaryRouteAction =
-                                if (directions == null || place.id == directions.origin.id) {
+                                if (
+                                    directions == null ||
+                                    place.id == directions.origin.id ||
+                                    place.id == currentDestinationId
+                                ) {
                                     PlaceDetailPrimaryRouteAction.Directions
                                 } else {
                                     PlaceDetailPrimaryRouteAction.AddStop
@@ -734,12 +1312,20 @@ fun MapLibreMbTilesMap(
                                             AppleMapSheet.Directions(place, emptyList()),
                                         )
                                     } else {
+                                        val rotated = dirs.withRotatedDestination(place)
                                         sheetStack.updateDirections(
-                                            dirs.origin,
-                                            dirs.stops + place,
+                                            rotated.origin,
+                                            rotated.stops,
+                                            travelMode = dirs.travelMode,
+                                            tripWaypoints = rotated.tripWaypoints,
                                         )
-                                        if (index == stackLayers.lastIndex) {
-                                            sheetStack.pop()
+                                        sheetStack.popAddStopOverlays()
+                                        coroutineScope.launch {
+                                            if (DirectionsRoutingService.canRoute(context)) {
+                                                routePlanTick++
+                                            } else {
+                                                onAddStopRequested()
+                                            }
                                         }
                                     }
                                 },
@@ -901,6 +1487,7 @@ fun MapLibreMbTilesMap(
                             AppleMapsDirectionsPanel(
                                 origin = sheet.origin,
                                 stops = sheet.stops,
+                                tripLegCount = (sheet.tripWaypoints.size - 1).coerceAtLeast(0),
                                 travelMode = sheet.travelMode,
                                 onTravelModeChange = { mode ->
                                     sheetStack.updateDirections(
@@ -908,17 +1495,29 @@ fun MapLibreMbTilesMap(
                                         sheet.stops,
                                         travelMode = mode,
                                     )
+                                    routePlanTick++
                                 },
                                 sheetGestures = sheetGestures,
                                 sheetTheme = sheetTheme,
                                 scrollState = scrollState,
                                 contentScrollEnabled = contentScrollEnabled,
-                                onAddStopRowClick = {
-                                    sheetStack.push(AppleMapSheet.AddStop)
-                                },
+                                onAddStopRowClick = onAddStopRequested,
                                 onDismiss = {
+                                    if (isNavigationActive) {
+                                        endNavigationSession()
+                                    }
                                     sheetStack.removeDirectionsAndAddStop()
                                     controller.selectedPlace = sheetStack.topPlaceDetail()?.place
+                                    activeRouteResult = null
+                                    activeRouteSource = null
+                                },
+                                routeResult = activeRouteResult,
+                                routeSource = activeRouteSource,
+                                isRouteCalculating = isRouteCalculating,
+                                isRouteRefining = isRouteRefining,
+                                offlineGraphLoaded = offlineGraphLoaded,
+                                onImportGraphClick = {
+                                    showOfflineGraphImportAlert = true
                                 },
                                 onNearbyShortcutClick = { shortcut ->
                                     controller.startNearbyCategoryBrowse(
@@ -926,6 +1525,8 @@ fun MapLibreMbTilesMap(
                                         controller.nearbyContextForDirections(),
                                     )
                                 },
+                                isNavigationActive = isNavigationActive,
+                                onStartNavigation = { startNavigationSession() },
                                 modifier = sheetModifier.fillMaxWidth(),
                             )
                         }
@@ -965,6 +1566,55 @@ fun MapLibreMbTilesMap(
                         .zIndex(0.5f)
                         .statusBarsPadding()
                         .padding(start = 12.dp, top = 8.dp),
+                )
+            }
+        }
+
+        if (isNavigationActive) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .zIndex(14f)
+                    .navigationBarsPadding()
+                    .padding(
+                        end = 12.dp,
+                        bottom = bottomChromePadding + 8.dp,
+                    ),
+                horizontalAlignment = Alignment.End,
+            ) {
+                MapTiltPillControl(
+                    onTiltUp = navTiltUp,
+                    onTiltDown = navTiltDown,
+                    tiltUpContentDescription = stringResource(R.string.nav_tilt_up),
+                    tiltDownContentDescription = stringResource(R.string.nav_tilt_down),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                MapZoomPillControl(
+                    onZoomIn = navZoomIn,
+                    onZoomOut = navZoomOut,
+                    zoomInContentDescription = stringResource(R.string.zoom_in),
+                    zoomOutContentDescription = stringResource(R.string.zoom_out),
+                    surfaceColor = NavigationMapControlSurfaceColor,
+                    iconTint = NavigationMapControlIconTint,
+                    dividerColor = NavigationMapControlDividerColor,
+                )
+            }
+            Button(
+                onClick = { endNavigationSession() },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .zIndex(15f)
+                    .statusBarsPadding()
+                    .padding(top = 8.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = sheetTheme.mapControlGlass,
+                    contentColor = sheetTheme.primaryText,
+                ),
+            ) {
+                Text(
+                    text = stringResource(R.string.apple_directions_end_navigation),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
                 )
             }
         }
@@ -1122,6 +1772,41 @@ fun MapLibreMbTilesMap(
             )
         }
 
+        OfflineGraphImportProgressOverlay(
+            visible = graphImportInProgress || graphRestoreInProgress,
+            statusMessage = graphImportStatusMessage.ifBlank {
+                stringResource(
+                    if (graphRestoreInProgress) {
+                        R.string.directions_offline_import_restoring
+                    } else {
+                        R.string.directions_offline_import_in_progress
+                    },
+                )
+            },
+            progressPercent = graphImportProgressPercent,
+        )
+
+        if (showOfflineGraphImportAlert) {
+            OfflineGraphImportAlertDialog(
+                onDismiss = { showOfflineGraphImportAlert = false },
+                onImportFolderClick = {
+                    graphImportInProgress = true
+                    graphFolderPicker.launch(null)
+                },
+                onImportZipClick = {
+                    graphImportInProgress = true
+                    graphZipPicker.launch(
+                        arrayOf(
+                            "application/zip",
+                            "application/x-zip-compressed",
+                            "*/*",
+                        ),
+                    )
+                },
+                isImporting = graphImportInProgress,
+            )
+        }
+
         claimGuidance?.let { guidance ->
             AlertDialog(
                 onDismissRequest = { if (!claimRequestInFlight) claimGuidance = null },
@@ -1188,6 +1873,11 @@ fun MapLibreMbTilesMap(
             )
         }
 
+        // Last in stack: modal window above map (AndroidView), sheets, auth, and other dialogs.
+        OfflineRoutingRequiredModal(
+            visible = showOfflineRoutingRequiredAlert,
+            onDismiss = { showOfflineRoutingRequiredAlert = false },
+        )
     }
 }
 

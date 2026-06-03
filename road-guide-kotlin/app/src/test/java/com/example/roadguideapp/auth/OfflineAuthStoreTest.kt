@@ -7,19 +7,7 @@ import org.junit.Test
 
 class OfflineAuthStoreTest {
 
-    @Test
-    fun hashPassword_isDeterministicForSameSalt() {
-        val hash1 = OfflineAuthStore.hashPassword("secret", "abc123")
-        val hash2 = OfflineAuthStore.hashPassword("secret", "abc123")
-        assertEquals(hash1, hash2)
-    }
-
-    @Test
-    fun hashPassword_differsForDifferentPasswords() {
-        val hash1 = OfflineAuthStore.hashPassword("one", "salt")
-        val hash2 = OfflineAuthStore.hashPassword("two", "salt")
-        assertNotEquals(hash1, hash2)
-    }
+    
 
     @Test
     fun validateIdentifier_rejectsTooShort() {

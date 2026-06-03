@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -23,6 +25,11 @@ import androidx.compose.ui.unit.dp
 /** Light neutral surface used on top of the map (typical map SDK floating controls). */
 internal val MapControlSurfaceColor = Color(0xFFFAFAFA)
 internal val MapControlIconTint = Color(0xFF2C2C2C)
+
+/** Sygic-style semi-transparent dark pill used during navigation. */
+internal val NavigationMapControlSurfaceColor = Color(0xB3373737)
+internal val NavigationMapControlIconTint = Color(0xFFFFFFFF)
+internal val NavigationMapControlDividerColor = Color(0x33FFFFFF)
 
 private val MapControlDiameter = 48.dp
 private val MapControlShadowElevation = 6.dp
@@ -66,6 +73,44 @@ internal fun MapZoomPillControl(
     iconTint: Color = MapControlIconTint,
     dividerColor: Color = Color(0x14000000),
 ) {
+    MapVerticalPillControl(
+        onTopClick = onZoomIn,
+        onBottomClick = onZoomOut,
+        topContentDescription = zoomInContentDescription,
+        bottomContentDescription = zoomOutContentDescription,
+        topIcon = {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = zoomInContentDescription,
+                tint = iconTint,
+            )
+        },
+        bottomIcon = {
+            Icon(
+                imageVector = Icons.Filled.Remove,
+                contentDescription = zoomOutContentDescription,
+                tint = iconTint,
+            )
+        },
+        modifier = modifier,
+        surfaceColor = surfaceColor,
+        dividerColor = dividerColor,
+    )
+}
+
+/** Vertical pill control (zoom, tilt, etc.) matching map SDK floating controls. */
+@Composable
+internal fun MapVerticalPillControl(
+    onTopClick: () -> Unit,
+    onBottomClick: () -> Unit,
+    topContentDescription: String,
+    bottomContentDescription: String,
+    topIcon: @Composable () -> Unit,
+    bottomIcon: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    surfaceColor: Color = MapControlSurfaceColor,
+    dividerColor: Color = Color(0x14000000),
+) {
     Surface(
         modifier = modifier.width(ZoomPillWidth),
         shape = RoundedCornerShape(ZoomPillCorner),
@@ -74,16 +119,12 @@ internal fun MapZoomPillControl(
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             IconButton(
-                onClick = onZoomIn,
+                onClick = onTopClick,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(ZoomPillButtonHeight),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = zoomInContentDescription,
-                    tint = iconTint,
-                )
+                topIcon()
             }
             HorizontalDivider(
                 modifier = Modifier.fillMaxWidth(),
@@ -91,17 +132,49 @@ internal fun MapZoomPillControl(
                 color = dividerColor,
             )
             IconButton(
-                onClick = onZoomOut,
+                onClick = onBottomClick,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(ZoomPillButtonHeight),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Remove,
-                    contentDescription = zoomOutContentDescription,
-                    tint = iconTint,
-                )
+                bottomIcon()
             }
         }
     }
+}
+
+@Composable
+internal fun MapTiltPillControl(
+    onTiltUp: () -> Unit,
+    onTiltDown: () -> Unit,
+    tiltUpContentDescription: String,
+    tiltDownContentDescription: String,
+    modifier: Modifier = Modifier,
+    surfaceColor: Color = NavigationMapControlSurfaceColor,
+    iconTint: Color = NavigationMapControlIconTint,
+    dividerColor: Color = NavigationMapControlDividerColor,
+) {
+    MapVerticalPillControl(
+        onTopClick = onTiltUp,
+        onBottomClick = onTiltDown,
+        topContentDescription = tiltUpContentDescription,
+        bottomContentDescription = tiltDownContentDescription,
+        topIcon = {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowUp,
+                contentDescription = tiltUpContentDescription,
+                tint = iconTint,
+            )
+        },
+        bottomIcon = {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = tiltDownContentDescription,
+                tint = iconTint,
+            )
+        },
+        modifier = modifier,
+        surfaceColor = surfaceColor,
+        dividerColor = dividerColor,
+    )
 }

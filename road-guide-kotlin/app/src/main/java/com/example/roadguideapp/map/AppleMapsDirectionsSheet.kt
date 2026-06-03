@@ -20,14 +20,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsBike
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.DirectionsBike
 import androidx.compose.material.icons.outlined.DirectionsCar
-import androidx.compose.material.icons.outlined.DirectionsWalk
 import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,6 +72,16 @@ internal fun AppleMapsDirectionsPanel(
     onAddStopRowClick: () -> Unit,
     onDismiss: () -> Unit,
     onNearbyShortcutClick: (AppleNearbyShortcut) -> Unit = {},
+    routeResult: DirectionsRouteResult? = null,
+    routeSource: DirectionsRouteSource? = null,
+    isRouteCalculating: Boolean = false,
+    isRouteRefining: Boolean = false,
+    offlineGraphLoaded: Boolean = false,
+    /** Legs in the full trip (for cumulative ETA / distance on the map route). */
+    tripLegCount: Int = 0,
+    onImportGraphClick: (() -> Unit)? = null,
+    isNavigationActive: Boolean = false,
+    onStartNavigation: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val travelModeIndex = DirectionsTravelMode.chipIndex(travelMode)
@@ -188,7 +200,7 @@ internal fun AppleMapsDirectionsPanel(
                     )
                     TravelModeChip(
                         selected = travelModeIndex == 1,
-                        icon = Icons.Outlined.DirectionsWalk,
+                        icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
                         label = stringResource(R.string.apple_directions_mode_walk),
                         onClick = { onTravelModeChange(DirectionsTravelMode.Walk) },
                         sheetTheme = sheetTheme,
@@ -196,7 +208,7 @@ internal fun AppleMapsDirectionsPanel(
                     )
                     TravelModeChip(
                         selected = travelModeIndex == 2,
-                        icon = Icons.Outlined.DirectionsBike,
+                        icon = Icons.AutoMirrored.Outlined.DirectionsBike,
                         label = stringResource(R.string.apple_directions_mode_cycle),
                         onClick = { onTravelModeChange(DirectionsTravelMode.Bicycle) },
                         sheetTheme = sheetTheme,
@@ -216,6 +228,7 @@ internal fun AppleMapsDirectionsPanel(
                     allLegs.forEachIndexed { index, leg ->
                         DirectionsStopRow(
                             place = leg,
+                            isDestination = index == allLegs.lastIndex && index > 0,
                             showLineAbove = index > 0,
                             showLineBelow = index < allLegs.lastIndex,
                             lineColor = lineColor,
@@ -225,6 +238,7 @@ internal fun AppleMapsDirectionsPanel(
                             dragHandleTint = sheetTheme.dragHandleTint,
                             stopGlyphSecondary = sheetTheme.stopGlyphSecondary,
                             onAccent = sheetTheme.onAccent,
+                            onGlyphClick = onAddStopRowClick,
                         )
                     }
                     DirectionsAddStopRow(
@@ -258,15 +272,65 @@ internal fun AppleMapsDirectionsPanel(
                     )
                 }
 
-                if (stops.isNotEmpty()) {
+                if (tripLegCount > 0) {
                     DirectionsSummaryCard(
-                        stopCount = stops.size,
+                        stopCount = tripLegCount,
+                        routeResult = routeResult,
+                        routeSource = routeSource,
+                        isCalculating = isRouteCalculating,
+                        isRefining = isRouteRefining,
                         summaryBackground = sheetTheme.summaryCardBackground,
                         onAccent = sheetTheme.onAccent,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
                     )
+                }
+
+                if (!offlineGraphLoaded && onImportGraphClick != null) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onImportGraphClick),
+                        color = sheetTheme.cardElevatedSecondary,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.directions_offline_import_title),
+                            color = accent,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+
+                val showNavigate =
+                    !isNavigationActive &&
+                        !isRouteCalculating &&
+                        !isRouteRefining &&
+                        routeResult != null &&
+                        routeResult.geometry.size >= 2 &&
+                        onStartNavigation != null
+                if (showNavigate) {
+                    Button(
+                        onClick = onStartNavigation,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accent,
+                            contentColor = sheetTheme.onAccent,
+                        ),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.apple_directions_navigate),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
         }
@@ -310,6 +374,7 @@ private fun TravelModeChip(
 @Composable
 private fun DirectionsStopRow(
     place: MapPlaceDetail,
+    isDestination: Boolean,
     showLineAbove: Boolean,
     showLineBelow: Boolean,
     lineColor: Color,
@@ -319,6 +384,7 @@ private fun DirectionsStopRow(
     dragHandleTint: Color,
     stopGlyphSecondary: Color,
     onAccent: Color,
+    onGlyphClick: () -> Unit,
 ) {
     val isFirst = !showLineAbove
     Row(
@@ -341,7 +407,13 @@ private fun DirectionsStopRow(
             } else {
                 Spacer(modifier = Modifier.height(14.dp))
             }
-            StopGlyph(isFirst = isFirst, accent = accent, stopGlyphSecondary = stopGlyphSecondary, onAccent = onAccent)
+            StopGlyph(
+                isFirst = isFirst,
+                accent = accent,
+                stopGlyphSecondary = stopGlyphSecondary,
+                onAccent = onAccent,
+                onClick = onGlyphClick,
+            )
             if (showLineBelow) {
                 Box(
                     modifier = Modifier
@@ -363,6 +435,14 @@ private fun DirectionsStopRow(
                     fontWeight = FontWeight.Medium,
                 )
                 Spacer(modifier = Modifier.height(2.dp))
+            } else if (isDestination) {
+                Text(
+                    text = stringResource(R.string.apple_directions_to_label),
+                    color = accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
             }
             Text(
                 text = place.name,
@@ -371,7 +451,7 @@ private fun DirectionsStopRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!isFirst) {
+            if (!isFirst && !isDestination) {
                 Text(
                     text = place.category,
                     color = muted,
@@ -396,11 +476,20 @@ private fun StopGlyph(
     accent: Color,
     stopGlyphSecondary: Color,
     onAccent: Color,
+    onClick: () -> Unit,
 ) {
     val ring = if (isFirst) accent else stopGlyphSecondary
+    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
-            .size(22.dp)
+            .size(28.dp)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .background(ring, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
@@ -487,6 +576,10 @@ private fun PillChip(
 @Composable
 private fun DirectionsSummaryCard(
     stopCount: Int,
+    routeResult: DirectionsRouteResult?,
+    routeSource: DirectionsRouteSource?,
+    isCalculating: Boolean,
+    isRefining: Boolean,
     summaryBackground: Color,
     onAccent: Color,
     modifier: Modifier = Modifier,
@@ -495,6 +588,29 @@ private fun DirectionsSummaryCard(
         stringResource(R.string.apple_directions_stop_one)
     } else {
         stringResource(R.string.apple_directions_stop_many, stopCount)
+    }
+    val timeLabel = when {
+        isCalculating -> stringResource(R.string.directions_route_calculating)
+        routeResult != null -> {
+            val minutes = (routeResult.totalDurationSeconds / 60.0).toInt().coerceAtLeast(1)
+            stringResource(R.string.directions_route_minutes, minutes)
+        }
+        else -> stringResource(R.string.apple_directions_summary_time_placeholder)
+    }
+    val subtitle = when {
+        isCalculating -> stringResource(R.string.directions_route_calculating_subtitle)
+        isRefining -> stringResource(R.string.directions_route_refining_subtitle)
+        routeResult != null -> {
+            val km = routeResult.totalLengthKm
+            val sourceLabel = when (routeSource) {
+                DirectionsRouteSource.Valhalla -> stringResource(R.string.directions_route_source_valhalla)
+                DirectionsRouteSource.OfflineGraph -> stringResource(R.string.directions_route_source_offline)
+                DirectionsRouteSource.Preview -> stringResource(R.string.directions_route_source_preview)
+                else -> ""
+            }
+            stringResource(R.string.directions_route_distance_km, km, sourceLabel)
+        }
+        else -> stringResource(R.string.apple_directions_summary_subtitle_placeholder)
     }
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -510,14 +626,14 @@ private fun DirectionsSummaryCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(R.string.apple_directions_summary_time_placeholder),
+                    text = timeLabel,
                     color = onAccent,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = stringResource(R.string.apple_directions_summary_subtitle_placeholder),
+                    text = subtitle,
                     color = onAccent.copy(alpha = 0.9f),
                     fontSize = 15.sp,
                 )
