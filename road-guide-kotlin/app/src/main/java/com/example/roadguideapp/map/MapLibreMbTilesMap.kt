@@ -747,6 +747,7 @@ fun MapLibreMbTilesMap(
         val mv = mapViewRef.value
         val directions = activeDirections
         if (directions == null) {
+            controller.activeRouteGeometry = null
             activeRouteResult = null
             activeRouteSource = null
             isRouteCalculating = false
@@ -770,6 +771,21 @@ fun MapLibreMbTilesMap(
         isRouteRefining = DirectionsRoutingService.hasSavedGraph(context) &&
             !OfflineGraphEngine.isLoaded()
 
+        val valhallaRoute = ValhallaRouteClient.fetchRoute(waypoints, directions.travelMode)
+        val fullGeometry = valhallaRoute?.geometry?.takeIf { it.size >= 2 }
+            ?: DirectionsPathOptimizer.buildPolyline(waypoints, segmentsPerLeg = 26)
+        controller.activeRouteGeometry = fullGeometry.takeIf { it.size >= 2 }
+        if (controller.activeNearbyCategory != null &&
+            controller.nearbySearchContext is NearbySearchContext.AlongRoute &&
+            controller.activeRouteGeometry != null
+        ) {
+            controller.applyNearbySearchContext(
+                NearbySearchContext.AlongRoute(controller.activeRouteGeometry!!),
+            )
+        }
+        val fitPoints = buildList {
+            addAll(waypoints)
+            addAll(fullGeometry)
         val planOutcome = withContext(Dispatchers.IO) {
             DirectionsRoutingService.planDirectionsRoute(
                 context = context,
@@ -1201,16 +1217,6 @@ fun MapLibreMbTilesMap(
                                 onNearbyShortcutClick = { shortcut ->
                                     controller.startNearbyCategoryBrowse(shortcut)
                                 },
-                                activeNearbyCategory = controller.activeNearbyCategory,
-                                nearbyBrowseResults = filteredNearby.visibleResults,
-                                nearbyBrowseLoading = controller.nearbyBrowseLoading,
-                                nearbyBrowseError = controller.nearbyBrowseError,
-                                nearbyFilterState = controller.nearbyFilterState,
-                                nearbyAvailableChains = filteredNearby.availableChains,
-                                nearbyPickHoursByGid = nearbyPickHoursByGid,
-                                onNearbyFilterChange = { controller.updateNearbyFilter(it) },
-                                onNearbyBrowseDone = { controller.exitNearbyBrowse() },
-                                onNearbyPlaceSelected = { controller.openNearbyPlace(it) },
                                 onSearchClear = { controller.clearSearchQueryOnly() },
                                 searchSuggestions = controller.searchSuggestions,
                                 searchLoading = controller.searchLoading,
@@ -1289,7 +1295,11 @@ fun MapLibreMbTilesMap(
                                 contentScrollEnabled = contentScrollEnabled,
                                 sheetGestures = sheetGestures,
                                 onClose = {
-                                    sheetStack.clearToHome()
+                                    if (sheetStack.layers.size > 1) {
+                                        sheetStack.pop()
+                                    } else {
+                                        sheetStack.clearToHome()
+                                    }
                                     controller.selectedPlace = null
                                 },
                                 sheetTheme = sheetTheme,
@@ -1397,8 +1407,40 @@ fun MapLibreMbTilesMap(
                                         }
                                     }
                                 },
+                                onNearbyShortcutClick = { shortcut ->
+                                    controller.startNearbyCategoryBrowse(
+                                        shortcut,
+                                        controller.nearbyContextForPlace(place),
+                                    )
+                                },
                                 modifier = sheetModifier,
                             )
+                        }
+
+                        AppleMapSheet.NearbyBrowse -> {
+                            val category = controller.activeNearbyCategory
+                            if (category != null) {
+                                NearbyBrowseSheetContent(
+                                    sheetTheme = sheetTheme,
+                                    scrollState = scrollState,
+                                    contentScrollEnabled = contentScrollEnabled,
+                                    sheetGestures = sheetGestures,
+                                    category = category,
+                                    results = filteredNearby.visibleResults,
+                                    loading = controller.nearbyBrowseLoading,
+                                    errorMessage = controller.nearbyBrowseError,
+                                    filterState = controller.nearbyFilterState,
+                                    availableChains = filteredNearby.availableChains,
+                                    pickHoursByGid = nearbyPickHoursByGid,
+                                    scopeOptions = controller.buildNearbyScopeOptions(),
+                                    searchContext = controller.nearbySearchContext,
+                                    onScopeSelected = { controller.applyNearbySearchContext(it) },
+                                    onFilterChange = { controller.updateNearbyFilter(it) },
+                                    onResultSelected = { controller.openNearbyPlace(it) },
+                                    onClose = { controller.exitNearbyBrowse() },
+                                    modifier = sheetModifier,
+                                )
+                            }
                         }
 
                         is AppleMapSheet.UserProfile -> {
@@ -1476,6 +1518,12 @@ fun MapLibreMbTilesMap(
                                 offlineGraphLoaded = offlineGraphLoaded,
                                 onImportGraphClick = {
                                     showOfflineGraphImportAlert = true
+                                },
+                                onNearbyShortcutClick = { shortcut ->
+                                    controller.startNearbyCategoryBrowse(
+                                        shortcut,
+                                        controller.nearbyContextForDirections(),
+                                    )
                                 },
                                 isNavigationActive = isNavigationActive,
                                 onStartNavigation = { startNavigationSession() },

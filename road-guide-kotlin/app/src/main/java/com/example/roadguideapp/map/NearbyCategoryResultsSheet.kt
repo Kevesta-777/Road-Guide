@@ -99,6 +99,9 @@ internal fun NearbyCategoryResultsContent(
     filterState: NearbyResultsFilter.State,
     availableChains: List<String>,
     pickHoursByGid: Map<String, String>,
+    scopeOptions: List<NearbyScopeOption>,
+    selectedSearchContext: NearbySearchContext,
+    onScopeSelected: (NearbySearchContext) -> Unit,
     onFilterChange: (NearbyResultsFilter.State) -> Unit,
     onResultSelected: (PeliasSearchResult) -> Unit,
     modifier: Modifier = Modifier,
@@ -108,6 +111,13 @@ internal fun NearbyCategoryResultsContent(
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
     ) {
+        NearbyCategoryScopePicker(
+            sheetTheme = sheetTheme,
+            options = scopeOptions,
+            selected = selectedSearchContext,
+            onSelect = onScopeSelected,
+            modifier = Modifier.padding(bottom = 10.dp),
+        )
         NearbyCategoryFilterRow(
             sheetTheme = sheetTheme,
             filterState = filterState,

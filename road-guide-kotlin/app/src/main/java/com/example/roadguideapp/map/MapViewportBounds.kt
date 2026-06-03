@@ -41,7 +41,7 @@ internal object MapViewportBounds {
             val west = (bounds.longitudeWest - lonSpan).coerceIn(-180.0, 180.0)
             val east = (bounds.longitudeEast + lonSpan).coerceIn(-180.0, 180.0)
             if (south >= north) return@runCatching null
-            LatLngBounds.from(south, west, north, east)
+            LatLngBoundsExt.fromEdges(south = south, west = west, north = north, east = east)
         }.getOrNull()
     }
 }

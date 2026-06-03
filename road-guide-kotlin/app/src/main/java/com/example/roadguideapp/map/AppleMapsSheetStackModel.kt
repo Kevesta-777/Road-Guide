@@ -6,11 +6,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
-/** Home, place detail, and directions share one detent (peek / mid / large). */
+/** Home, place detail, directions, and nearby browse share one detent (peek / mid / large). */
 internal fun AppleMapSheet.isSyncedStackSheet(): Boolean = when (this) {
     is AppleMapSheet.Home,
     is AppleMapSheet.PlaceDetail,
     is AppleMapSheet.Directions,
+    is AppleMapSheet.NearbyBrowse,
     -> true
     is AppleMapSheet.AddStop -> false
     is AppleMapSheet.UserProfile -> false
@@ -75,6 +76,11 @@ internal sealed class AppleMapSheet {
     ) : AppleMapSheet() {
         override val stackId: String = "user_profile"
     }
+
+    /** Nearby category results overlay; dismiss returns to the sheet underneath. */
+    data object NearbyBrowse : AppleMapSheet() {
+        override val stackId: String = "nearby_browse"
+    }
 }
 
 internal data class AppleMapSheetLayer(
@@ -125,11 +131,19 @@ internal class AppleMapsSheetStackState(
             ?: currentSyncedSnap()
             ?: AppleSheetSnap.Mid
         val snapForNewLayer = if (sheet.isSyncedStackSheet()) inheritedSnap else (targetSnap ?: AppleSheetSnap.Mid)
-        layers = when {
-            withoutDuplicate.size == 1 && withoutDuplicate[0].sheet is AppleMapSheet.Home -> {
-                listOf(AppleMapSheetLayer(sheet, snapForNewLayer, key))
-            }
-            else -> withoutDuplicate + AppleMapSheetLayer(sheet, snapForNewLayer, key)
+        val base = ensureHomeBase(withoutDuplicate)
+        layers = base + AppleMapSheetLayer(sheet, snapForNewLayer, key)
+    }
+
+    private fun ensureHomeBase(layers: List<AppleMapSheetLayer>): List<AppleMapSheetLayer> {
+        if (layers.isEmpty()) {
+            return listOf(AppleMapSheetLayer(AppleMapSheet.Home, AppleSheetSnap.Peek))
+        }
+        return if (layers.first().sheet is AppleMapSheet.Home) {
+            layers
+        } else {
+            listOf(AppleMapSheetLayer(AppleMapSheet.Home, AppleSheetSnap.Peek)) +
+                layers.filter { it.sheet !is AppleMapSheet.Home }
         }
     }
 
@@ -158,8 +172,15 @@ internal class AppleMapsSheetStackState(
         val remaining = layers.filter { layer ->
             layer.sheet !is AppleMapSheet.Directions && layer.sheet !is AppleMapSheet.AddStop
         }
-        layers = remaining.ifEmpty { listOf(AppleMapSheetLayer(AppleMapSheet.Home, AppleSheetSnap.Peek)) }
+        layers = ensureHomeBase(remaining)
     }
+
+    fun removeNearbyBrowse() {
+        val remaining = layers.filter { it.sheet !is AppleMapSheet.NearbyBrowse }
+        layers = ensureHomeBase(remaining)
+    }
+
+    fun hasNearbyBrowse(): Boolean = layers.any { it.sheet is AppleMapSheet.NearbyBrowse }
 
     fun updateSnap(layerIndex: Int, snap: AppleSheetSnap) {
         val sheet = layers.getOrNull(layerIndex)?.sheet

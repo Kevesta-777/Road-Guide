@@ -71,6 +71,7 @@ internal fun AppleMapsDirectionsPanel(
     contentScrollEnabled: Boolean,
     onAddStopRowClick: () -> Unit,
     onDismiss: () -> Unit,
+    onNearbyShortcutClick: (AppleNearbyShortcut) -> Unit = {},
     routeResult: DirectionsRouteResult? = null,
     routeSource: DirectionsRouteSource? = null,
     isRouteCalculating: Boolean = false,
@@ -246,6 +247,12 @@ internal fun AppleMapsDirectionsPanel(
                         sheetTheme = sheetTheme,
                     )
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                NearbyShortcutsSection(
+                    sheetTheme = sheetTheme,
+                    onShortcutClick = onNearbyShortcutClick,
+                )
 
                 Row(
                     modifier = Modifier

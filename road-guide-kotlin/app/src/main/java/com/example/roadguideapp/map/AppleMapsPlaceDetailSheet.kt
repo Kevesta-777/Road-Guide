@@ -192,6 +192,7 @@ internal fun AppleMapsPlaceDetailSheetContent(
     onPrimaryRouteClick: () -> Unit,
     claimButtonMode: PlaceClaimButtonMode = PlaceClaimButtonMode.Claim,
     onClaimPlaceClick: () -> Unit,
+    onNearbyShortcutClick: (AppleNearbyShortcut) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val palette = sheetTheme.toPlaceDetailPalette()
@@ -240,6 +241,11 @@ internal fun AppleMapsPlaceDetailSheetContent(
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
         ) {
+            Spacer(modifier = Modifier.height(16.dp))
+            NearbyShortcutsSection(
+                sheetTheme = sheetTheme,
+                onShortcutClick = onNearbyShortcutClick,
+            )
             Spacer(modifier = Modifier.height(16.dp))
             enriched?.description?.takeIf { it.isNotBlank() }?.let { aboutText ->
                 PlaceDetailSectionTitle(

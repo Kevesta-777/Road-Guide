@@ -11,16 +11,17 @@ import org.maplibre.android.maps.Style
 
 /**
  * Nearby category pipeline:
- * 1. Map viewport + center point
+ * 1. Map viewport + search context (center, place, or route corridor)
  * 2. Category filtering
  * 3. POI indexing (dedupe by stable id)
- * 4. Ranking (distance from center)
- * 5. Progressive search expansion (viewport Pelias → expanded bounds → wider Pelias)
+ * 4. Ranking (distance from context)
+ * 5. Progressive search expansion (viewport Pelias → expanded bounds → context-specific Pelias)
  */
 internal object NearbyCategorySearchEngine {
 
     const val TARGET_MIN_RESULTS = 5
     const val RESULT_LIMIT = NearbyCategorySearch.RESULT_LIMIT
+    private const val MAX_ROUTE_PELIAS_SAMPLES = 10
 
     data class IndexedPoi(
         val result: PeliasSearchResult,
@@ -40,11 +41,12 @@ internal object NearbyCategorySearchEngine {
         map: MapLibreMap,
         mapView: MapView,
         category: AppleNearbyShortcut,
+        searchContext: NearbySearchContext,
     ): SearchOutcome = withContext(Dispatchers.Main) {
-        val center = MapViewportBounds.center(map) ?: return@withContext SearchOutcome(emptyList(), emptyMap())
+        val mapCenter = MapViewportBounds.center(map)
+            ?: return@withContext SearchOutcome(emptyList(), emptyMap())
         val viewportBounds = MapViewportBounds.visibleBounds(map, mapView)
 
-        // Phase 1 — vector tiles currently drawn in the viewport.
         val viewportHighlights = if (style != null) {
             NearbyMapPoiQuery.queryVisibleCategory(
                 context = context,
@@ -52,34 +54,39 @@ internal object NearbyCategorySearchEngine {
                 map = map,
                 mapView = mapView,
                 category = category,
+                searchContext = searchContext,
+                mapCenter = mapCenter,
             )
         } else {
             emptyList()
         }
 
         var indexed = indexAndRank(
-            center = center,
+            searchContext = searchContext,
+            mapCenter = mapCenter,
             entries = viewportHighlights.map { it.result to it.pick },
         )
 
         var peliasError: String? = null
 
-        // Phase 2 — Pelias nearby within current viewport bounds.
-        if (indexed.size < TARGET_MIN_RESULTS && viewportBounds != null) {
+        val primaryBounds = primarySearchBounds(searchContext, mapCenter, viewportBounds)
+
+        if (indexed.size < TARGET_MIN_RESULTS && primaryBounds != null) {
             when (
                 val response = withContext(Dispatchers.IO) {
                     PeliasSearchClient.nearbyInBounds(
                         categories = category.peliasCategories,
-                        bounds = viewportBounds,
+                        bounds = primaryBounds,
                         size = RESULT_LIMIT,
                     )
                 }
             ) {
                 is PeliasSearchResponse.Success -> {
                     indexed = mergeExpansion(
-                        center = center,
+                        searchContext = searchContext,
+                        mapCenter = mapCenter,
                         existing = indexed,
-                        incoming = response.results,
+                        incoming = filterByContext(searchContext, mapCenter, response.results),
                         style = style,
                         map = map,
                         context = context,
@@ -89,9 +96,8 @@ internal object NearbyCategorySearchEngine {
             }
         }
 
-        // Phase 3 — expand bounds (~1.6×) and query Pelias again.
-        if (indexed.size < TARGET_MIN_RESULTS && viewportBounds != null) {
-            val expanded = MapViewportBounds.expand(viewportBounds, factor = 1.6)
+        if (indexed.size < TARGET_MIN_RESULTS && primaryBounds != null) {
+            val expanded = MapViewportBounds.expand(primaryBounds, factor = 1.6)
             if (expanded != null) {
                 when (
                     val response = withContext(Dispatchers.IO) {
@@ -104,9 +110,10 @@ internal object NearbyCategorySearchEngine {
                 ) {
                     is PeliasSearchResponse.Success -> {
                         indexed = mergeExpansion(
-                            center = center,
+                            searchContext = searchContext,
+                            mapCenter = mapCenter,
                             existing = indexed,
-                            incoming = response.results,
+                            incoming = filterByContext(searchContext, mapCenter, response.results),
                             style = style,
                             map = map,
                             context = context,
@@ -117,28 +124,25 @@ internal object NearbyCategorySearchEngine {
             }
         }
 
-        // Phase 4 — point-based Pelias fallback around map center.
-        if (indexed.size < TARGET_MIN_RESULTS) {
-            when (
-                val response = withContext(Dispatchers.IO) {
-                    PeliasSearchClient.nearby(
-                        categories = category.peliasCategories,
-                        point = center,
-                        size = RESULT_LIMIT,
-                    )
-                }
-            ) {
+        val needsContextPelias = indexed.size < TARGET_MIN_RESULTS ||
+            searchContext is NearbySearchContext.AlongRoute
+        if (needsContextPelias) {
+            val pointResults = withContext(Dispatchers.IO) {
+                fetchContextPointResults(category, searchContext, mapCenter)
+            }
+            when (pointResults) {
                 is PeliasSearchResponse.Success -> {
                     indexed = mergeExpansion(
-                        center = center,
+                        searchContext = searchContext,
+                        mapCenter = mapCenter,
                         existing = indexed,
-                        incoming = response.results,
+                        incoming = filterByContext(searchContext, mapCenter, pointResults.results),
                         style = style,
                         map = map,
                         context = context,
                     )
                 }
-                is PeliasSearchResponse.Failure -> peliasError = peliasError ?: response.message
+                is PeliasSearchResponse.Failure -> peliasError = peliasError ?: pointResults.message
             }
         }
 
@@ -154,13 +158,69 @@ internal object NearbyCategorySearchEngine {
         )
     }
 
+    private fun primarySearchBounds(
+        searchContext: NearbySearchContext,
+        mapCenter: LatLng,
+        viewportBounds: LatLngBounds?,
+    ): LatLngBounds? = when (searchContext) {
+        // Route corridors are covered by point samples in [fetchContextPointResults]; Pelias
+        // `/nearby` does not support full-route rects and caps circle radius (~5 km).
+        is NearbySearchContext.AlongRoute -> null
+        is NearbySearchContext.NearPlace -> {
+            PolylineDistance.boundsWithBuffer(
+                listOf(searchContext.location),
+                NearbySearchContext.NEAR_PLACE_BOUNDS_PADDING_METERS,
+            ) ?: viewportBounds
+        }
+        NearbySearchContext.MapCenter -> viewportBounds
+    }
+
+    private suspend fun fetchContextPointResults(
+        category: AppleNearbyShortcut,
+        searchContext: NearbySearchContext,
+        mapCenter: LatLng,
+    ): PeliasSearchResponse = when (searchContext) {
+        is NearbySearchContext.AlongRoute -> {
+            PeliasSearchClient.nearbyAlongPolyline(
+                categories = category.peliasCategories,
+                polyline = searchContext.polyline,
+                corridorMeters = searchContext.radiusMeters,
+                maxSamples = MAX_ROUTE_PELIAS_SAMPLES,
+                size = RESULT_LIMIT,
+            )
+        }
+        is NearbySearchContext.NearPlace -> {
+            PeliasSearchClient.nearby(
+                categories = category.peliasCategories,
+                point = searchContext.location,
+                size = RESULT_LIMIT,
+            )
+        }
+        NearbySearchContext.MapCenter -> {
+            PeliasSearchClient.nearby(
+                categories = category.peliasCategories,
+                point = mapCenter,
+                size = RESULT_LIMIT,
+            )
+        }
+    }
+
+    private fun filterByContext(
+        searchContext: NearbySearchContext,
+        mapCenter: LatLng,
+        results: List<PeliasSearchResult>,
+    ): List<PeliasSearchResult> =
+        results.filter { searchContext.includes(it.latLng, mapCenter) }
+
     internal fun indexAndRank(
-        center: LatLng,
+        searchContext: NearbySearchContext,
+        mapCenter: LatLng,
         entries: List<Pair<PeliasSearchResult, MapPlacePick?>>,
     ): List<IndexedPoi> {
         val byGid = LinkedHashMap<String, IndexedPoi>()
         for ((result, pick) in entries) {
-            val distance = DirectionsPathOptimizer.haversineMeters(center, result.latLng)
+            if (!searchContext.includes(result.latLng, mapCenter)) continue
+            val distance = searchContext.distanceMeters(result.latLng, mapCenter)
             val existing = byGid[result.gid]
             if (existing == null || distance < existing.distanceMeters) {
                 byGid[result.gid] = IndexedPoi(
@@ -176,7 +236,8 @@ internal object NearbyCategorySearchEngine {
     }
 
     private fun mergeExpansion(
-        center: LatLng,
+        searchContext: NearbySearchContext,
+        mapCenter: LatLng,
         existing: List<IndexedPoi>,
         incoming: List<PeliasSearchResult>,
         style: Style?,
@@ -191,7 +252,7 @@ internal object NearbyCategorySearchEngine {
             }
             pairs.add(result to pick)
         }
-        return indexAndRank(center, pairs)
+        return indexAndRank(searchContext, mapCenter, pairs)
     }
 
     fun boundsForIndexed(pois: List<IndexedPoi>): LatLngBounds? =

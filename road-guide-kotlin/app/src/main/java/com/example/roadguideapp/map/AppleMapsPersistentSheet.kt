@@ -77,17 +77,7 @@ internal fun AppleMapsPersistentSheetContent(
     searchSuggestions: List<PeliasSearchResult> = emptyList(),
     searchLoading: Boolean = false,
     searchError: String? = null,
-    activeNearbyCategory: AppleNearbyShortcut? = null,
-    nearbyBrowseResults: List<PeliasSearchResult> = emptyList(),
-    nearbyBrowseLoading: Boolean = false,
-    nearbyBrowseError: String? = null,
-    nearbyFilterState: NearbyResultsFilter.State = NearbyResultsFilter.State(),
-    nearbyAvailableChains: List<String> = emptyList(),
-    nearbyPickHoursByGid: Map<String, String> = emptyMap(),
-    onNearbyFilterChange: (NearbyResultsFilter.State) -> Unit = {},
     onSearchResultSelected: (PeliasSearchResult) -> Unit = {},
-    onNearbyBrowseDone: () -> Unit = {},
-    onNearbyPlaceSelected: (PeliasSearchResult) -> Unit = {},
     onNearbyShortcutClick: (AppleNearbyShortcut) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -132,35 +122,6 @@ internal fun AppleMapsPersistentSheetContent(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
             }
-        } else if (activeNearbyCategory != null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(
-                        sheetGestures.scrollContent(
-                            scrollState = scrollState,
-                            scrollEnabled = contentScrollEnabled,
-                        ),
-                    )
-                    .padding(top = stickyHeaderHeight)
-                    .navigationBarsPadding()
-                    .padding(bottom = 12.dp),
-            ) {
-                Spacer(modifier = Modifier.height(8.dp))
-                NearbyCategoryResultsContent(
-                    sheetTheme = sheetTheme,
-                    categoryLabel = stringResource(activeNearbyCategory.labelRes),
-                    results = nearbyBrowseResults,
-                    loading = nearbyBrowseLoading,
-                    errorMessage = nearbyBrowseError,
-                    filterState = nearbyFilterState,
-                    availableChains = nearbyAvailableChains,
-                    pickHoursByGid = nearbyPickHoursByGid,
-                    onFilterChange = onNearbyFilterChange,
-                    onResultSelected = onNearbyPlaceSelected,
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
         } else {
             HomeSheetBrowseContent(
                 sheetTheme = sheetTheme,
@@ -188,28 +149,20 @@ internal fun AppleMapsPersistentSheetContent(
             ) {
                 AppleMapsSheetGrabber(grabberColor = sheetTheme.grabber)
             }
-            if (activeNearbyCategory != null) {
-                NearbyCategorySearchHeader(
-                    sheetTheme = sheetTheme,
-                    categoryLabel = stringResource(activeNearbyCategory.labelRes),
-                    onClose = onNearbyBrowseDone,
-                )
-            } else {
-                AppleMapsSheetSearchHeader(
-                    sheetTheme = sheetTheme,
-                    searchQuery = searchQuery,
-                    isSearchActive = isSearchActive,
-                    searchFocusRequester = searchFocusRequester,
-                    onSearchQueryChange = onSearchQueryChange,
-                    onSearchFocus = onSearchFocus,
-                    onSearchSubmit = onSearchSubmit,
-                    onSearchClear = onSearchClear,
-                    onSearchCancel = onSearchCancel,
-                    profileAbbreviation = profileAbbreviation,
-                    isLoggedIn = isLoggedIn,
-                    onProfileClick = onProfileClick,
-                )
-            }
+            AppleMapsSheetSearchHeader(
+                sheetTheme = sheetTheme,
+                searchQuery = searchQuery,
+                isSearchActive = isSearchActive,
+                searchFocusRequester = searchFocusRequester,
+                onSearchQueryChange = onSearchQueryChange,
+                onSearchFocus = onSearchFocus,
+                onSearchSubmit = onSearchSubmit,
+                onSearchClear = onSearchClear,
+                onSearchCancel = onSearchCancel,
+                profileAbbreviation = profileAbbreviation,
+                isLoggedIn = isLoggedIn,
+                onProfileClick = onProfileClick,
+            )
         }
     }
 }
@@ -223,8 +176,6 @@ private fun HomeSheetBrowseContent(
     onNearbyShortcutClick: (AppleNearbyShortcut) -> Unit,
     sheetGestures: AppleMapsSheetGestures,
 ) {
-    val nearby = NearbyCategorySearch.shortcuts
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -239,35 +190,10 @@ private fun HomeSheetBrowseContent(
             .padding(bottom = 12.dp),
     ) {
         Spacer(modifier = Modifier.height(20.dp))
-        Text(
-            text = stringResource(R.string.apple_find_nearby),
-            color = sheetTheme.primaryText,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 16.dp),
+        NearbyShortcutsSection(
+            sheetTheme = sheetTheme,
+            onShortcutClick = onNearbyShortcutClick,
         )
-        Spacer(modifier = Modifier.height(12.dp))
-        nearby.chunked(2).forEach { rowShortcuts ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                rowShortcuts.forEach { item ->
-                    AppleNearbyCell(
-                        item = item,
-                        sheetTheme = sheetTheme,
-                        onClick = { onNearbyShortcutClick(item) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                if (rowShortcuts.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-        }
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = stringResource(R.string.apple_guides_we_love),
@@ -492,46 +418,5 @@ private fun AppleMapsSearchField(
                     .appleMapsSheetInteractiveBlock(),
             )
         }
-    }
-}
-
-@Composable
-private fun AppleNearbyCell(
-    item: AppleNearbyShortcut,
-    sheetTheme: AppleMapsSheetTheme,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .height(52.dp)
-            .clickable(onClick = onClick)
-            .background(sheetTheme.nearbyCellBackground, RoundedCornerShape(10.dp))
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .background(item.tint, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (item.labelRes == R.string.apple_cat_parking) {
-                Text(
-                    text = "P",
-                    color = sheetTheme.nearbyCellText,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                )
-            } else {
-                Text(text = item.emoji, fontSize = 16.sp)
-            }
-        }
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = stringResource(item.labelRes),
-            color = sheetTheme.nearbyCellText,
-            fontSize = 16.sp,
-        )
     }
 }
