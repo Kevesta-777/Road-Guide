@@ -770,7 +770,8 @@ fun MapLibreMbTilesMap(
         isRouteCalculating = true
         isRouteRefining = DirectionsRoutingService.hasSavedGraph(context) &&
             !OfflineGraphEngine.isLoaded()
-
+            
+        val waypoints = directions.tripWaypoints.map { it.latLng }
         val valhallaRoute = ValhallaRouteClient.fetchRoute(waypoints, directions.travelMode)
         val fullGeometry = valhallaRoute?.geometry?.takeIf { it.size >= 2 }
             ?: DirectionsPathOptimizer.buildPolyline(waypoints, segmentsPerLeg = 26)
@@ -783,9 +784,6 @@ fun MapLibreMbTilesMap(
                 NearbySearchContext.AlongRoute(controller.activeRouteGeometry!!),
             )
         }
-        val fitPoints = buildList {
-            addAll(waypoints)
-            addAll(fullGeometry)
         val planOutcome = withContext(Dispatchers.IO) {
             DirectionsRoutingService.planDirectionsRoute(
                 context = context,
