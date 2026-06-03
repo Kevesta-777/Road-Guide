@@ -111,6 +111,8 @@
     <string name="map_offline_mode_hint">Offline map — visit this area online first for street detail, or start the tileserver</string>
     <string name="zoom_in">Zoom in</string>
     <string name="zoom_out">Zoom out</string>
+    <string name="nav_tilt_up">Increase camera tilt</string>
+    <string name="nav_tilt_down">Decrease camera tilt</string>
 
     <!-- Apple Maps–style chrome -->
     <string name="apple_choose_map">Choose map style</string>
@@ -276,6 +278,23 @@
     <string name="apple_directions_summary_subtitle_placeholder">ETA and distance when routing is available</string>
     <string name="apple_directions_stop_one">1 stop</string>
     <string name="apple_directions_stop_many">%d stops</string>
+    <string name="apple_directions_navigate">Navigate</string>
+    <string name="apple_directions_end_navigation">End</string>
+    <string name="directions_navigation_started">Navigation started</string>
+    <string name="directions_navigation_ended">Navigation ended</string>
+    <string name="directions_navigation_failed">Could not start navigation on this route</string>
+    <string name="directions_navigation_arrived">You have arrived</string>
+    <string name="nav_accel">▲</string>
+    <string name="nav_reduce">▼</string>
+    <string name="nav_pause">II</string>
+    <string name="nav_resume">▶</string>
+    <string name="nav_arrow_up">▲</string>
+    <string name="nav_arrow_down">▼</string>
+    <string name="nav_tilt_label">TILT</string>
+    <string name="nav_tilt_range">30–80°</string>
+    <string name="nav_height_label">HEIGHT</string>
+    <string name="nav_height_range">0.5–10m</string>
+    <string name="nav_speed_unit">m/s</string>
     <string name="directions_offline_import_title">Offline routing</string>
     <string name="directions_offline_import_message">Copy the graph-cache folder from prepare_graph.ps1 onto your phone, then tap Import and select that graph-cache folder (not a parent folder). ZIP import is optional.</string>
     <string name="directions_offline_import_action_folder">Import graph folder</string>

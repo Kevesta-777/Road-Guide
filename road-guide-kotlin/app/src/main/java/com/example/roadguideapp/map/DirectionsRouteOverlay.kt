@@ -1,5 +1,6 @@
 package com.example.roadguideapp.map
 
+import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
@@ -30,6 +31,9 @@ internal object DirectionsRouteOverlay {
 
     private const val ROUTE_BLUE = "#007AFF"
     private const val CASING_WHITE = "#FFFFFF"
+    /** Sygic-style navigation route (vibrant fill + dark border). */
+    private const val ROUTE_NAV_BLUE = "#2B7CE8"
+    private const val ROUTE_NAV_BORDER = "#0F2238"
     /** ~80 km/h straight-line ETA when Valhalla is unavailable. */
     private const val ASSUMED_DRIVE_MPS = 22.22
 
@@ -51,6 +55,11 @@ internal object DirectionsRouteOverlay {
         stops: List<MapPlaceDetail>,
         valhallaRoute: DirectionsRouteResult? = null,
         revealProgress: Float = 1f,
+        showRemainingRoute: Boolean = false,
+        navigationGeometry: List<LatLng>? = null,
+        routeStartPosition: LatLng? = null,
+        routeStartDistanceM: Double? = null,
+        routeTrimAheadM: Double = 0.0,
     ) {
         val ordered = listOf(origin) + stops
         val waypoints = ordered.map { it.latLng }
@@ -59,17 +68,48 @@ internal object DirectionsRouteOverlay {
             return
         }
 
-        val fullLineLatLngs = valhallaRoute?.geometry?.takeIf { it.size >= 2 }
-            ?: DirectionsPathOptimizer.buildPolyline(waypoints, segmentsPerLeg = 26)
-        val lineLatLngs = DirectionsRouteGeometry.slicePolylineByProgress(
-            fullLineLatLngs,
-            revealProgress.coerceIn(0f, 1f),
-        )
+        val rawLineLatLngs = navigationGeometry?.takeIf { it.size >= 2 }
+            ?: valhallaRoute?.geometry?.takeIf { it.size >= 2 }
+            ?: DirectionsPathOptimizer.buildPolyline(waypoints, segmentsPerLeg = 32)
+        val fullLineLatLngs = DirectionsRouteGeometry.prepareForMapDisplay(rawLineLatLngs)
+        val lineLatLngs = when {
+            showRemainingRoute && routeStartPosition != null && routeStartDistanceM != null -> {
+                DirectionsRouteGeometry.sliceRemainingRouteAtMarker(
+                    fullLineLatLngs,
+                    anchor = routeStartPosition,
+                    distanceAlongRouteM = routeStartDistanceM,
+                    trimAheadM = routeTrimAheadM,
+                )
+            }
+            showRemainingRoute && routeStartPosition != null -> {
+                DirectionsRouteGeometry.slicePolylineFromPosition(
+                    fullLineLatLngs,
+                    routeStartPosition,
+                    trimAheadM = routeTrimAheadM,
+                )
+            }
+            showRemainingRoute -> {
+                DirectionsRouteGeometry.slicePolylineRemaining(
+                    fullLineLatLngs,
+                    revealProgress.coerceIn(0f, 1f),
+                )
+            }
+            else -> {
+                DirectionsRouteGeometry.slicePolylineByProgress(
+                    fullLineLatLngs,
+                    revealProgress.coerceIn(0f, 1f),
+                )
+            }
+        }
+        if (lineLatLngs.size < 2) {
+            remove(style)
+            return
+        }
         val linePoints = lineLatLngs.map { GeoPoint.fromLngLat(it.longitude, it.latitude) }
         val lineFeature = Feature.fromGeometry(LineString.fromLngLats(linePoints))
 
         val pointFeatures = ArrayList<Feature>(waypoints.lastIndex)
-        val showLegLabels = revealProgress >= 0.98f
+        val showLegLabels = !showRemainingRoute && revealProgress >= 0.98f
 
         val valhallaLegs = valhallaRoute?.legs.orEmpty()
         if (showLegLabels) for (i in 0 until waypoints.lastIndex) {
@@ -99,6 +139,7 @@ internal object DirectionsRouteOverlay {
         if (lineSrc != null && ptSrc != null) {
             lineSrc.setGeoJson(lineFeature)
             ptSrc.setGeoJson(pointsCollection)
+            applyLineStyle(style, showRemainingRoute)
             return
         }
 
@@ -108,19 +149,11 @@ internal object DirectionsRouteOverlay {
         val pointsSource = GeoJsonSource(POINTS_SOURCE, pointsCollection)
 
         val casingLayer = LineLayer(LINE_CASING_LAYER, LINE_SOURCE).withProperties(
-            PropertyFactory.lineColor(CASING_WHITE),
-            PropertyFactory.lineWidth(7.5f),
-            PropertyFactory.lineOpacity(0.95f),
-            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            *lineCasingProperties(showRemainingRoute),
         )
 
         val lineLayer = LineLayer(LINE_LAYER, LINE_SOURCE).withProperties(
-            PropertyFactory.lineColor(ROUTE_BLUE),
-            PropertyFactory.lineWidth(4.5f),
-            PropertyFactory.lineOpacity(1f),
-            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            *lineFillProperties(showRemainingRoute),
         )
 
         val labelLayer = SymbolLayer(LABEL_LAYER, POINTS_SOURCE)
@@ -156,11 +189,86 @@ internal object DirectionsRouteOverlay {
 
     private fun routeAnchorLayerId(style: Style): String? {
         val candidates = listOf(
+            "transportation",
+            PmtilesOverviewStylePatch.overviewLayerId("transportation"),
             AppMapStyle.BUILDING_3D_LAYER_ID,
             AppMapStyle.BUILDING_LAYER_ID,
         )
         return candidates.firstOrNull { style.getLayer(it) != null }
     }
+
+    private fun applyLineStyle(style: Style, navigationMode: Boolean) {
+        (style.getLayer(LINE_CASING_LAYER) as? LineLayer)?.setProperties(
+            *lineCasingProperties(navigationMode),
+        )
+        (style.getLayer(LINE_LAYER) as? LineLayer)?.setProperties(
+            *lineFillProperties(navigationMode),
+        )
+    }
+
+    private fun lineCasingProperties(navigationMode: Boolean): Array<org.maplibre.android.style.layers.PropertyValue<*>> {
+        val width = if (navigationMode) navigationRouteCasingWidthExpression() else routeCasingWidthExpression()
+        return arrayOf(
+            PropertyFactory.lineColor(if (navigationMode) ROUTE_NAV_BORDER else CASING_WHITE),
+            PropertyFactory.lineWidth(width),
+            PropertyFactory.lineOpacity(if (navigationMode) 0.98f else 0.95f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        )
+    }
+
+    private fun lineFillProperties(navigationMode: Boolean): Array<org.maplibre.android.style.layers.PropertyValue<*>> {
+        val width = if (navigationMode) navigationRouteLineWidthExpression() else routeLineWidthExpression()
+        return arrayOf(
+            PropertyFactory.lineColor(if (navigationMode) ROUTE_NAV_BLUE else ROUTE_BLUE),
+            PropertyFactory.lineWidth(width),
+            PropertyFactory.lineOpacity(if (navigationMode) 0.88f else 1f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        )
+    }
+
+    /** Width tuned to sit inside yellow road fill (OpenMapTiles-style). */
+    private fun routeLineWidthExpression(): Expression = Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        Expression.stop(14, 1.4f),
+        Expression.stop(16, 2.2f),
+        Expression.stop(18, 3.2f),
+        Expression.stop(20, 3.8f),
+        Expression.stop(22, 4f),
+    )
+
+    private fun routeCasingWidthExpression(): Expression = Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        Expression.stop(14, 2.6f),
+        Expression.stop(16, 3.6f),
+        Expression.stop(18, 4.8f),
+        Expression.stop(20, 5.4f),
+        Expression.stop(22, 5.6f),
+    )
+
+    /** Navigation route: ~70% of typical road fill width at driving zoom. */
+    private fun navigationRouteLineWidthExpression(): Expression = Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        Expression.stop(14, 3.2f),
+        Expression.stop(16, 4.2f),
+        Expression.stop(18, 5.2f),
+        Expression.stop(20, 5.8f),
+        Expression.stop(22, 6f),
+    )
+
+    private fun navigationRouteCasingWidthExpression(): Expression = Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        Expression.stop(14, 4.8f),
+        Expression.stop(16, 6f),
+        Expression.stop(18, 7.2f),
+        Expression.stop(20, 7.8f),
+        Expression.stop(22, 8f),
+    )
 
     private fun addRouteLayer(style: Style, layer: LineLayer, aboveLayerId: String?) {
         if (aboveLayerId != null && style.getLayer(aboveLayerId) != null) {

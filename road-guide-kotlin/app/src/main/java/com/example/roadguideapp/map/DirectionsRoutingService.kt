@@ -82,7 +82,7 @@ internal object DirectionsRoutingService {
                 Log.i(TAG, "Using offline GraphHopper route (${route.geometry.size} points)")
                 return DirectionsPlanOutcome(
                     optimizedStops = if (useFullTrip) stops else optimizedStops,
-                    result = route,
+                    result = route.withMapDisplayGeometry(),
                     source = DirectionsRouteSource.OfflineGraph,
                 )
             }
@@ -94,7 +94,7 @@ internal object DirectionsRoutingService {
                 if (route.geometry.size >= 2) {
                     return DirectionsPlanOutcome(
                         optimizedStops = if (useFullTrip) stops else optimizedStops,
-                        result = route,
+                        result = route.withMapDisplayGeometry(),
                         source = DirectionsRouteSource.Valhalla,
                     )
                 }
@@ -114,7 +114,16 @@ internal object DirectionsRoutingService {
             )
         }
 
-        val preview = buildPreviewRoute(waypoints, mode)
+        if (OfflineGraphEngine.isImportInProgress() || OfflineGraphEngine.isLoadInProgress()) {
+            Log.i(TAG, "Graph import/load in progress; skipping preview route line")
+            return DirectionsPlanOutcome(
+                optimizedStops = if (useFullTrip) stops else optimizedStops,
+                result = null,
+                source = DirectionsRouteSource.Unavailable,
+            )
+        }
+
+        val preview = buildPreviewRoute(waypoints, mode).withMapDisplayGeometry()
         return DirectionsPlanOutcome(
             optimizedStops = if (useFullTrip) stops else optimizedStops,
             result = preview,
@@ -142,13 +151,13 @@ internal object DirectionsRoutingService {
 
         if (OfflineGraphRouter.isReady()) {
             routeOffline(waypoints, mode)?.let { route ->
-                return DirectionsRoutingOutcome(route, DirectionsRouteSource.OfflineGraph)
+                return DirectionsRoutingOutcome(route.withMapDisplayGeometry(), DirectionsRouteSource.OfflineGraph)
             }
         }
 
         if (!hasSavedGraph(context) && ValhallaReachability.probeIfNeeded()) {
             ValhallaRouteClient.fetchRoute(waypoints, mode)?.let { route ->
-                return DirectionsRoutingOutcome(route, DirectionsRouteSource.Valhalla)
+                return DirectionsRoutingOutcome(route.withMapDisplayGeometry(), DirectionsRouteSource.Valhalla)
             }
         }
 
@@ -196,7 +205,7 @@ internal object DirectionsRoutingService {
         waypoints: List<LatLng>,
         mode: DirectionsTravelMode,
     ): DirectionsRouteResult {
-        val geometry = DirectionsPathOptimizer.buildPolyline(waypoints, segmentsPerLeg = 8)
+        val geometry = DirectionsPathOptimizer.buildPolyline(waypoints, segmentsPerLeg = 32)
         val speedMps = assumedSpeedMps(mode)
         val legs = ArrayList<DirectionsRouteLeg>(waypoints.size)
         var totalSeconds = 0.0

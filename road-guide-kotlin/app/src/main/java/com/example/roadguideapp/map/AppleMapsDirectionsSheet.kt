@@ -20,14 +20,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsBike
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.DirectionsBike
 import androidx.compose.material.icons.outlined.DirectionsCar
-import androidx.compose.material.icons.outlined.DirectionsWalk
 import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +79,8 @@ internal fun AppleMapsDirectionsPanel(
     /** Legs in the full trip (for cumulative ETA / distance on the map route). */
     tripLegCount: Int = 0,
     onImportGraphClick: (() -> Unit)? = null,
+    isNavigationActive: Boolean = false,
+    onStartNavigation: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val travelModeIndex = DirectionsTravelMode.chipIndex(travelMode)
@@ -195,7 +199,7 @@ internal fun AppleMapsDirectionsPanel(
                     )
                     TravelModeChip(
                         selected = travelModeIndex == 1,
-                        icon = Icons.Outlined.DirectionsWalk,
+                        icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
                         label = stringResource(R.string.apple_directions_mode_walk),
                         onClick = { onTravelModeChange(DirectionsTravelMode.Walk) },
                         sheetTheme = sheetTheme,
@@ -203,7 +207,7 @@ internal fun AppleMapsDirectionsPanel(
                     )
                     TravelModeChip(
                         selected = travelModeIndex == 2,
-                        icon = Icons.Outlined.DirectionsBike,
+                        icon = Icons.AutoMirrored.Outlined.DirectionsBike,
                         label = stringResource(R.string.apple_directions_mode_cycle),
                         onClick = { onTravelModeChange(DirectionsTravelMode.Bicycle) },
                         sheetTheme = sheetTheme,
@@ -285,11 +289,38 @@ internal fun AppleMapsDirectionsPanel(
                         color = sheetTheme.cardElevatedSecondary,
                     ) {
                         Text(
-                            text = stringResource(R.string.directions_offline_import_message),
+                            text = stringResource(R.string.directions_offline_import_title),
                             color = accent,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+
+                val showNavigate =
+                    !isNavigationActive &&
+                        !isRouteCalculating &&
+                        !isRouteRefining &&
+                        routeResult != null &&
+                        routeResult.geometry.size >= 2 &&
+                        onStartNavigation != null
+                if (showNavigate) {
+                    Button(
+                        onClick = onStartNavigation,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accent,
+                            contentColor = sheetTheme.onAccent,
+                        ),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.apple_directions_navigate),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }

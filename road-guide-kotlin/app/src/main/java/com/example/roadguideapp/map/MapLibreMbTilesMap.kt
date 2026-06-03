@@ -10,13 +10,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,6 +38,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -137,8 +143,6 @@ fun MapLibreMbTilesMap(
     val syncedStackSnap = sheetStack.currentSyncedSnap()
     val effectiveSheetHeightDp = syncedSheetHeightDp
     val bottomChromePadding = effectiveSheetHeightDp + 12.dp
-    val showBottomMapChrome = syncedStackSnap != AppleSheetSnap.Large
-    val showTopRightChrome = syncedStackSnap != AppleSheetSnap.Large
 
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
     var mapReady by remember { mutableStateOf(false) }
@@ -186,8 +190,206 @@ fun MapLibreMbTilesMap(
     var activeRouteSource by remember { mutableStateOf<DirectionsRouteSource?>(null) }
     var isRouteCalculating by remember { mutableStateOf(false) }
     var isRouteRefining by remember { mutableStateOf(false) }
+    var isNavigationActive by remember { mutableStateOf(false) }
+    var navVehiclePosition by remember { mutableStateOf<LatLng?>(null) }
+    var navVehicleBearing by remember { mutableFloatStateOf(0f) }
+    var navCameraHolder by remember { mutableStateOf<DirectionsNavigationCamera?>(null) }
+    var navTiltDegrees by remember { mutableDoubleStateOf(DirectionsNavConfig.DEFAULT_TILT_DEG) }
+    val navDisplaySmoother = remember { DirectionsNavigationDisplaySmoother() }
+    var navRouteGeometry by remember { mutableStateOf<List<LatLng>>(emptyList()) }
 
     val activeDirections = sheetStack.activeDirections()
+    val activeRouteResultState = rememberUpdatedState(activeRouteResult)
+    val activeDirectionsForNav = rememberUpdatedState(activeDirections)
+    val isNavigationActiveState = rememberUpdatedState(isNavigationActive)
+    val navRouteGeometryState = rememberUpdatedState(navRouteGeometry)
+    val endNavigationRef = remember { mutableStateOf<() -> Unit>({}) }
+    val navUserZoomGestureRef = remember { mutableStateOf(false) }
+
+    val navigationEngine = remember(coroutineScope) {
+        DirectionsNavigationEngine(
+            onUpdate = { frame, progress ->
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    if (!isNavigationActiveState.value) return@launch
+                    val routeLine = navRouteGeometryState.value
+                    val displayFrame = DirectionsNavigationFrameResolver.resolveDisplayFrame(
+                        engineFrame = frame,
+                        route = routeLine,
+                        smoother = navDisplaySmoother,
+                    )
+                    navVehiclePosition = LatLng(displayFrame.lat, displayFrame.lng)
+                    navVehicleBearing = displayFrame.bearingDegrees.toFloat()
+                    val runtime = controller.mapRuntime
+                    val directions = activeDirectionsForNav.value
+                    val route = activeRouteResultState.value
+                    if (runtime != null && directions != null && route != null && routeLine.size >= 2) {
+                        val (_, style) = runtime
+                        val tripOrigin = directions.tripWaypoints.first()
+                        val tripStops = directions.tripWaypoints.drop(1)
+                        if (!isNavigationActiveState.value) return@launch
+                        if (!navUserZoomGestureRef.value) {
+                            navCameraHolder?.follow(displayFrame)
+                        }
+                        DirectionsNavigationFrameResolver.syncNavigationVisuals(
+                            style = style,
+                            route = routeLine,
+                            frame = displayFrame,
+                            origin = tripOrigin,
+                            stops = tripStops,
+                            valhallaRoute = route,
+                        )
+                        controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+                    }
+                }
+            },
+            onRouteComplete = {
+                coroutineScope.launch(Dispatchers.Main.immediate) {
+                    if (!isNavigationActiveState.value) return@launch
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.directions_navigation_arrived),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    endNavigationRef.value()
+                }
+            },
+        )
+    }
+
+    fun currentNavFrame(): DirectionsNavFrame? {
+        val pos = navVehiclePosition ?: return null
+        return DirectionsNavFrame(
+            lat = pos.latitude,
+            lng = pos.longitude,
+            bearingDegrees = navVehicleBearing.toDouble(),
+            cumulativeDistanceM = navigationEngine.currentDistanceM(),
+        )
+    }
+
+    fun refreshNavCamera() {
+        currentNavFrame()?.let { frame -> navCameraHolder?.refreshCameraNow(frame) }
+    }
+
+    fun endNavigationSession() {
+        isNavigationActive = false
+        navigationEngine.stop()
+        navDisplaySmoother.clear()
+        navRouteGeometry = emptyList()
+        navCameraHolder?.exit()
+        navCameraHolder = null
+        navVehiclePosition = null
+        navVehicleBearing = 0f
+        controller.mapRuntime?.let { (map, style) ->
+            DirectionsNavigationVehicleLayer.remove(style)
+            map.uiSettings.apply {
+                isScrollGesturesEnabled = true
+                isRotateGesturesEnabled = true
+                isTiltGesturesEnabled = true
+                isZoomGesturesEnabled = true
+            }
+            MapStyleRuntime.apply3dVisuals(map, style, is3d)
+            val directions = activeDirections
+            val route = activeRouteResult
+            if (directions != null && route != null && route.geometry.size >= 2) {
+                val tripOrigin = directions.tripWaypoints.first()
+                val tripStops = directions.tripWaypoints.drop(1)
+                DirectionsRouteOverlay.sync(
+                    style = style,
+                    origin = tripOrigin,
+                    stops = tripStops,
+                    valhallaRoute = route,
+                    revealProgress = 1f,
+                )
+            }
+        }
+        controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+    }
+
+    fun startNavigationSession() {
+        val route = activeRouteResult
+        val directions = activeDirections
+        val runtime = controller.mapRuntime
+        if (route == null || directions == null || runtime == null || route.geometry.size < 2) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.directions_navigation_failed),
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        val (map, style) = runtime
+        isNavigationActive = true
+        is3d = true
+        sheetStack.updateAllSyncedSnaps(AppleSheetSnap.Peek)
+        MapStyleRuntime.apply3dVisuals(map, style, enabled = true)
+        map.uiSettings.apply {
+            isScrollGesturesEnabled = false
+            isRotateGesturesEnabled = false
+            isTiltGesturesEnabled = false
+            isZoomGesturesEnabled = true
+        }
+        val mapViewHeight = mapViewRef.value?.height ?: 0
+        val camera = DirectionsNavigationCamera(map) {
+            (mapViewRef.value?.height ?: mapViewHeight).coerceAtLeast(1)
+        }
+        navCameraHolder = camera
+        navTiltDegrees = DirectionsNavConfig.DEFAULT_TILT_DEG
+        val navGeometry = route.geometry
+        navRouteGeometry = navGeometry
+        val initialSpeed = DirectionsNavConfig.speedMps(directions.travelMode)
+        navigationEngine.speedMps = initialSpeed
+        navigationEngine.loadGeometry(navGeometry, resetPosition = true)
+        val firstFrame = DirectionsNavFrame(
+            lat = navGeometry.first().latitude,
+            lng = navGeometry.first().longitude,
+            bearingDegrees = bearingDegrees(
+                navGeometry[0].latitude,
+                navGeometry[0].longitude,
+                navGeometry[1].latitude,
+                navGeometry[1].longitude,
+            ),
+            cumulativeDistanceM = 0.0,
+        )
+        navDisplaySmoother.reset(firstFrame, navGeometry)
+        val displayFrame = DirectionsNavigationFrameResolver.resolveDisplayFrame(
+            engineFrame = firstFrame,
+            route = navGeometry,
+            smoother = navDisplaySmoother,
+        )
+        navVehiclePosition = LatLng(displayFrame.lat, displayFrame.lng)
+        navVehicleBearing = displayFrame.bearingDegrees.toFloat()
+        val tripOrigin = directions.tripWaypoints.first()
+        val tripStops = directions.tripWaypoints.drop(1)
+        DirectionsNavigationFrameResolver.syncNavigationVisuals(
+            style = style,
+            route = navGeometry,
+            frame = displayFrame,
+            origin = tripOrigin,
+            stops = tripStops,
+            valhallaRoute = route,
+        )
+        camera.enter(displayFrame)
+        if (!navigationEngine.start()) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.directions_navigation_failed),
+                Toast.LENGTH_LONG,
+            ).show()
+            endNavigationSession()
+            return
+        }
+        Toast.makeText(
+            context,
+            context.getString(R.string.directions_navigation_started),
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    endNavigationRef.value = { endNavigationSession() }
+
+    val showBottomMapChrome = !isNavigationActive && syncedStackSnap != AppleSheetSnap.Large
+    val showTopRightChrome = !isNavigationActive && syncedStackSnap != AppleSheetSnap.Large
+
     val activeDirectionsState = rememberUpdatedState(activeDirections)
     val activeNearbyCategoryState = rememberUpdatedState(controller.activeNearbyCategory)
     val bottomChromePaddingState = rememberUpdatedState(bottomChromePadding)
@@ -263,9 +465,7 @@ fun MapLibreMbTilesMap(
                         routePlanTick++
                         coroutineScope.launch {
                             kotlinx.coroutines.delay(400)
-                            if (OfflineGraphEngine.isLoaded() && activeDirections != null) {
-                                routePlanTick++
-                            }
+                            routePlanTick++
                         }
                     } else {
                         routePlanTick++
@@ -464,7 +664,9 @@ fun MapLibreMbTilesMap(
         controller.mapRuntime,
         activeRouteResult,
         activeDirections?.tripWaypoints?.map { it.id },
+        isNavigationActive,
     ) {
+        if (isNavigationActive) return@LaunchedEffect
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
         val (_, style) = runtime
         val directions = activeDirections ?: return@LaunchedEffect
@@ -488,6 +690,21 @@ fun MapLibreMbTilesMap(
 
     LaunchedEffect(
         controller.mapRuntime,
+        graphImportInProgress,
+        graphRestoreInProgress,
+    ) {
+        if (!graphImportInProgress && !graphRestoreInProgress) return@LaunchedEffect
+        val runtime = controller.mapRuntime ?: return@LaunchedEffect
+        val (_, style) = runtime
+        val mv = mapViewRef.value
+        activeRouteResult = null
+        activeRouteSource = null
+        val clear = { DirectionsRouteOverlay.remove(style) }
+        if (mv != null) mv.post(clear) else clear()
+    }
+
+    LaunchedEffect(
+        controller.mapRuntime,
         activeDirections?.origin?.id,
         activeDirections?.stops?.map { it.id },
         activeDirections?.tripWaypoints?.map { it.id },
@@ -497,7 +714,9 @@ fun MapLibreMbTilesMap(
         offlineGraphLoaded,
         graphImportInProgress,
         graphRestoreInProgress,
+        isNavigationActive,
     ) {
+        if (isNavigationActive) return@LaunchedEffect
         if (graphImportInProgress || graphRestoreInProgress) return@LaunchedEffect
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
         val (map, style) = runtime
@@ -672,6 +891,7 @@ fun MapLibreMbTilesMap(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            navigationEngine.stop()
             applyMapBackdropBlur(mapViewRef.value, 0f)
             mapViewRef.value?.onDestroy()
             mapViewRef.value = null
@@ -690,6 +910,29 @@ fun MapLibreMbTilesMap(
             map.easeCamera(CameraUpdateFactory.zoomTo(next), MapConstants.ZOOM_ANIMATION_MS)
         }
     }
+    val navZoomIn: () -> Unit = {
+        navCameraHolder?.adjustZoom(DirectionsNavConfig.ZOOM_STEP)
+        refreshNavCamera()
+    }
+    val navZoomOut: () -> Unit = {
+        navCameraHolder?.adjustZoom(-DirectionsNavConfig.ZOOM_STEP)
+        refreshNavCamera()
+    }
+    val navTiltUp: () -> Unit = {
+        navCameraHolder?.adjustTilt(DirectionsNavConfig.TILT_STEP_DEG)
+        navTiltDegrees = navCameraHolder?.tiltDegrees ?: navTiltDegrees
+        refreshNavCamera()
+    }
+    val navTiltDown: () -> Unit = {
+        navCameraHolder?.adjustTilt(-DirectionsNavConfig.TILT_STEP_DEG)
+        navTiltDegrees = navCameraHolder?.tiltDegrees ?: navTiltDegrees
+        refreshNavCamera()
+    }
+
+    val isNavigationActiveRef = rememberUpdatedState(isNavigationActive)
+    val navCameraHolderRef = rememberUpdatedState(navCameraHolder)
+    val navVehiclePositionRef = rememberUpdatedState(navVehiclePosition)
+    val navVehicleBearingRef = rememberUpdatedState(navVehicleBearing)
 
     MapSearchAutocompleteEffect(controller)
     MapNearbyHighlightsEffect(controller)
@@ -784,7 +1027,13 @@ fun MapLibreMbTilesMap(
                                         if (!needsOverlay) return
                                         mapView.post { controller.mapOverlayCameraTick++ }
                                     }
-                                    map.addOnCameraMoveStartedListener {
+                                    map.addOnCameraMoveStartedListener { reason ->
+                                        if (
+                                            isNavigationActiveRef.value &&
+                                            reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE
+                                        ) {
+                                            navUserZoomGestureRef.value = true
+                                        }
                                         syncExtrusionDuring3d(suppressForCameraMotion = true)
                                     }
                                     map.addOnCameraMoveListener {
@@ -800,6 +1049,24 @@ fun MapLibreMbTilesMap(
                                         publishScaleRuler()
                                         publishMapOverlayPositions()
                                         syncExtrusionDuring3d(suppressForCameraMotion = false)
+                                        if (isNavigationActiveRef.value && navUserZoomGestureRef.value) {
+                                            navUserZoomGestureRef.value = false
+                                            val pos = navVehiclePositionRef.value
+                                            val camera = navCameraHolderRef.value
+                                            if (pos != null && camera != null) {
+                                                val frame = DirectionsNavFrame(
+                                                    lat = pos.latitude,
+                                                    lng = pos.longitude,
+                                                    bearingDegrees = navVehicleBearingRef.value.toDouble(),
+                                                    cumulativeDistanceM = 0.0,
+                                                )
+                                                camera.syncUserZoomFromMap(
+                                                    frame,
+                                                    map.cameraPosition.zoom,
+                                                )
+                                                camera.follow(frame)
+                                            }
+                                        }
                                         MapDataTierLogger.logZoomTierIfChanged(
                                             map.cameraPosition.zoom.toDouble(),
                                             controller.mapStyleMode,
@@ -815,11 +1082,13 @@ fun MapLibreMbTilesMap(
                 update = { },
             )
 
-            DirectionsWaypointMarkersOverlay(
-                directions = activeDirections,
-                map = controller.mapLibreMap,
-                cameraTick = controller.mapOverlayCameraTick,
-            )
+            if (!isNavigationActive) {
+                DirectionsWaypointMarkersOverlay(
+                    directions = activeDirections,
+                    map = controller.mapLibreMap,
+                    cameraTick = controller.mapOverlayCameraTick,
+                )
+            }
 
             NearbyCategoryMarkersOverlay(
                 category = controller.activeNearbyCategory,
@@ -1166,6 +1435,9 @@ fun MapLibreMbTilesMap(
                                     sheetStack.push(AppleMapSheet.AddStop)
                                 },
                                 onDismiss = {
+                                    if (isNavigationActive) {
+                                        endNavigationSession()
+                                    }
                                     sheetStack.removeDirectionsAndAddStop()
                                     controller.selectedPlace = sheetStack.topPlaceDetail()?.place
                                     activeRouteResult = null
@@ -1179,6 +1451,8 @@ fun MapLibreMbTilesMap(
                                 onImportGraphClick = {
                                     showOfflineGraphImportAlert = true
                                 },
+                                isNavigationActive = isNavigationActive,
+                                onStartNavigation = { startNavigationSession() },
                                 modifier = sheetModifier.fillMaxWidth(),
                             )
                         }
@@ -1218,6 +1492,55 @@ fun MapLibreMbTilesMap(
                         .zIndex(0.5f)
                         .statusBarsPadding()
                         .padding(start = 12.dp, top = 8.dp),
+                )
+            }
+        }
+
+        if (isNavigationActive) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .zIndex(14f)
+                    .navigationBarsPadding()
+                    .padding(
+                        end = 12.dp,
+                        bottom = bottomChromePadding + 8.dp,
+                    ),
+                horizontalAlignment = Alignment.End,
+            ) {
+                MapTiltPillControl(
+                    onTiltUp = navTiltUp,
+                    onTiltDown = navTiltDown,
+                    tiltUpContentDescription = stringResource(R.string.nav_tilt_up),
+                    tiltDownContentDescription = stringResource(R.string.nav_tilt_down),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                MapZoomPillControl(
+                    onZoomIn = navZoomIn,
+                    onZoomOut = navZoomOut,
+                    zoomInContentDescription = stringResource(R.string.zoom_in),
+                    zoomOutContentDescription = stringResource(R.string.zoom_out),
+                    surfaceColor = NavigationMapControlSurfaceColor,
+                    iconTint = NavigationMapControlIconTint,
+                    dividerColor = NavigationMapControlDividerColor,
+                )
+            }
+            Button(
+                onClick = { endNavigationSession() },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .zIndex(15f)
+                    .statusBarsPadding()
+                    .padding(top = 8.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = sheetTheme.mapControlGlass,
+                    contentColor = sheetTheme.primaryText,
+                ),
+            ) {
+                Text(
+                    text = stringResource(R.string.apple_directions_end_navigation),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
                 )
             }
         }

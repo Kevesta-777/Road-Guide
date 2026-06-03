@@ -320,7 +320,6 @@ internal fun OfflineGraphImportAlertDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.directions_offline_import_message))
                 if (isImporting) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

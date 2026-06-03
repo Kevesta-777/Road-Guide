@@ -432,7 +432,7 @@ internal object OfflineGraphRouter {
     private fun PointList.toLatLngList(): List<LatLng> {
         val total = size()
         if (total == 0) return emptyList()
-        val maxPoints = 800
+        val maxPoints = 12_000
         val step = maxOf(1, total / maxPoints)
         val list = ArrayList<LatLng>(minOf(total, maxPoints) + 1)
         var i = 0

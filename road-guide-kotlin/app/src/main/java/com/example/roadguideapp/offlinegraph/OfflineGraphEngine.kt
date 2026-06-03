@@ -19,10 +19,13 @@ internal object OfflineGraphEngine {
 
     @Volatile
     private var loadInProgress: Boolean = false
+    @Volatile
+    private var importInProgress: Boolean = false
 
     fun isLoaded(): Boolean = OfflineGraphRouter.isReady()
 
     fun isLoadInProgress(): Boolean = loadInProgress
+    fun isImportInProgress(): Boolean = importInProgress
 
     fun hasSavedGraph(context: Context): Boolean =
         OfflineGraphStorage.getActiveGraphPath(context) != null
@@ -100,6 +103,7 @@ internal object OfflineGraphEngine {
         onProgress: (OfflineGraphProgress) -> Unit,
         copyToDest: (dest: File) -> Result<File>,
     ): Result<String> {
+        importInProgress = true
         OfflineGraphTiming.markStart()
         prepareDeviceForGraphImport(context)
         val dest = OfflineGraphStorage.folderForNewImport(context)
@@ -115,6 +119,8 @@ internal object OfflineGraphEngine {
             Log.e(TAG, "Graph import failed", e)
             runCatching { dest.deleteRecursively() }
             Result.failure(e)
+        } finally {
+            importInProgress = false
         }
     }
 
