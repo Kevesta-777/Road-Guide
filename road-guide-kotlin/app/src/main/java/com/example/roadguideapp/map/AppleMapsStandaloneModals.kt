@@ -7,10 +7,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -47,6 +47,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.example.roadguideapp.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -302,6 +308,82 @@ internal fun AppleMapsMyLocationModal(
                     Text(stringResource(R.string.apple_location_go_here))
                 }
             }
+        }
+    }
+}
+
+/**
+ * Full-screen modal above map, sheets, and chrome. Uses a window [Popup] so MapLibre
+ * [AndroidView] cannot paint over the message.
+ */
+@Composable
+internal fun OfflineRoutingRequiredModal(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val widthDp = with(density) {
+        if (view.width > 0) view.width.toDp() else configuration.screenWidthDp.dp
+    }
+    val heightDp = with(density) {
+        if (view.height > 0) view.height.toDp() else configuration.screenHeightDp.dp
+    }
+
+    Popup(
+        alignment = Alignment.TopStart,
+        offset = IntOffset.Zero,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(
+            focusable = true,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            clippingEnabled = false,
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(widthDp)
+                .height(heightDp)
+                .background(Color.Black.copy(alpha = 0.52f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 36.dp),
+            ) {
+                OfflineRoutingRequiredModalContent(onDismiss = onDismiss)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfflineRoutingRequiredModalContent(
+    onDismiss: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.directions_offline_routing_required),
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color(0xFF1C1C1E),
+        )
+        Button(
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.apple_ok))
         }
     }
 }

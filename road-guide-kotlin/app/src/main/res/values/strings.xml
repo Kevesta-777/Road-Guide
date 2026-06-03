@@ -310,6 +310,8 @@
     <string name="directions_offline_import_success">Graph imported. Calculating route…</string>
     <string name="directions_offline_import_failed">Graph import failed: %1$s</string>
     <string name="directions_routing_unavailable">Routing server unavailable. Import a graph ZIP or connect to the network.</string>
+    <string name="directions_offline_routing_required">Option offline routing, please</string>
+    <string name="apple_ok">OK</string>
     <string name="directions_route_failed">Could not calculate a route for these points.</string>
     <string name="directions_offline_route_failed">Could not route on the offline map. Make sure your stops are inside the imported map area.</string>
     <string name="directions_route_calculating">Calculating…</string>

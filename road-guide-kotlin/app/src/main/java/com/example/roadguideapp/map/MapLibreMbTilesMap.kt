@@ -181,6 +181,7 @@ fun MapLibreMbTilesMap(
     val resolvedBackendPoiIds = remember { mutableStateMapOf<String, String>() }
     var routePlanTick by remember { mutableIntStateOf(0) }
     var showOfflineGraphImportAlert by remember { mutableStateOf(false) }
+    var showOfflineRoutingRequiredAlert by remember { mutableStateOf(false) }
     var graphImportInProgress by remember { mutableStateOf(false) }
     var graphRestoreInProgress by remember { mutableStateOf(false) }
     var graphImportStatusMessage by remember { mutableStateOf("") }
@@ -199,6 +200,29 @@ fun MapLibreMbTilesMap(
     var navRouteGeometry by remember { mutableStateOf<List<LatLng>>(emptyList()) }
 
     val activeDirections = sheetStack.activeDirections()
+
+    fun clearActiveRouteOverlay() {
+        activeRouteResult = null
+        activeRouteSource = null
+        controller.mapRuntime?.let { (_, style) ->
+            val mv = mapViewRef.value
+            val clear = { DirectionsRouteOverlay.remove(style) }
+            if (mv != null) mv.post(clear) else clear()
+        }
+        controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
+    }
+
+    val onAddStopRequested: () -> Unit = {
+        clearActiveRouteOverlay()
+        sheetStack.popAddStopOverlays()
+        val offlineReady = offlineGraphLoaded && OfflineGraphEngine.isLoaded()
+        if (offlineReady) {
+            sheetStack.push(AppleMapSheet.AddStop)
+        } else {
+            showOfflineRoutingRequiredAlert = true
+        }
+    }
+
     val activeRouteResultState = rememberUpdatedState(activeRouteResult)
     val activeDirectionsForNav = rememberUpdatedState(activeDirections)
     val isNavigationActiveState = rememberUpdatedState(isNavigationActive)
@@ -792,15 +816,19 @@ fun MapLibreMbTilesMap(
             val clear = { DirectionsRouteOverlay.remove(style) }
             if (mv != null) mv.post(clear) else clear()
             if (routePlanTick > 0) {
+                val offlineGraphReady = OfflineGraphEngine.isLoaded()
                 val message = when {
-                    DirectionsRoutingService.hasSavedGraph(context) &&
-                        OfflineGraphEngine.isLoaded() ->
+                    DirectionsRoutingService.hasSavedGraph(context) && offlineGraphReady ->
                         context.getString(R.string.directions_offline_route_failed)
+                    planOutcome.source == DirectionsRouteSource.Unavailable && !offlineGraphReady ->
+                        null
                     planOutcome.source == DirectionsRouteSource.Unavailable ->
                         context.getString(R.string.directions_routing_unavailable)
                     else -> context.getString(R.string.directions_route_failed)
                 }
-                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                message?.let { text ->
+                    Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+                }
             }
             return@LaunchedEffect
         }
@@ -1286,7 +1314,7 @@ fun MapLibreMbTilesMap(
                                             if (DirectionsRoutingService.canRoute(context)) {
                                                 routePlanTick++
                                             } else {
-                                                showOfflineGraphImportAlert = true
+                                                onAddStopRequested()
                                             }
                                         }
                                     }
@@ -1431,9 +1459,7 @@ fun MapLibreMbTilesMap(
                                 sheetTheme = sheetTheme,
                                 scrollState = scrollState,
                                 contentScrollEnabled = contentScrollEnabled,
-                                onAddStopRowClick = {
-                                    sheetStack.push(AppleMapSheet.AddStop)
-                                },
+                                onAddStopRowClick = onAddStopRequested,
                                 onDismiss = {
                                     if (isNavigationActive) {
                                         endNavigationSession()
@@ -1799,6 +1825,11 @@ fun MapLibreMbTilesMap(
             )
         }
 
+        // Last in stack: modal window above map (AndroidView), sheets, auth, and other dialogs.
+        OfflineRoutingRequiredModal(
+            visible = showOfflineRoutingRequiredAlert,
+            onDismiss = { showOfflineRoutingRequiredAlert = false },
+        )
     }
 }
 

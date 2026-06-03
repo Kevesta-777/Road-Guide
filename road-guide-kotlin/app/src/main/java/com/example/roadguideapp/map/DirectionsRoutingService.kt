@@ -123,6 +123,15 @@ internal object DirectionsRoutingService {
             )
         }
 
+        if (!hasSavedGraph(context)) {
+            Log.i(TAG, "No offline graph imported; skipping straight-line preview route")
+            return DirectionsPlanOutcome(
+                optimizedStops = if (useFullTrip) stops else optimizedStops,
+                result = null,
+                source = DirectionsRouteSource.Unavailable,
+            )
+        }
+
         val preview = buildPreviewRoute(waypoints, mode).withMapDisplayGeometry()
         return DirectionsPlanOutcome(
             optimizedStops = if (useFullTrip) stops else optimizedStops,
@@ -165,6 +174,10 @@ internal object DirectionsRoutingService {
     }
 
     fun hasSavedGraph(context: Context): Boolean = OfflineGraphEngine.hasSavedGraph(context)
+
+    /** True when an imported offline graph exists or is already loaded in memory. */
+    fun isOfflineRoutingConfigured(context: Context): Boolean =
+        hasSavedGraph(context) || OfflineGraphEngine.isLoaded()
 
     suspend fun canRoute(context: Context): Boolean {
         if (OfflineGraphEngine.isLoaded() || hasSavedGraph(context)) return true

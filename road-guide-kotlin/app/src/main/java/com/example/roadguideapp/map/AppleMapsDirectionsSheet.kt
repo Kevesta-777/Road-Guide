@@ -237,6 +237,7 @@ internal fun AppleMapsDirectionsPanel(
                             dragHandleTint = sheetTheme.dragHandleTint,
                             stopGlyphSecondary = sheetTheme.stopGlyphSecondary,
                             onAccent = sheetTheme.onAccent,
+                            onGlyphClick = onAddStopRowClick,
                         )
                     }
                     DirectionsAddStopRow(
@@ -376,6 +377,7 @@ private fun DirectionsStopRow(
     dragHandleTint: Color,
     stopGlyphSecondary: Color,
     onAccent: Color,
+    onGlyphClick: () -> Unit,
 ) {
     val isFirst = !showLineAbove
     Row(
@@ -398,7 +400,13 @@ private fun DirectionsStopRow(
             } else {
                 Spacer(modifier = Modifier.height(14.dp))
             }
-            StopGlyph(isFirst = isFirst, accent = accent, stopGlyphSecondary = stopGlyphSecondary, onAccent = onAccent)
+            StopGlyph(
+                isFirst = isFirst,
+                accent = accent,
+                stopGlyphSecondary = stopGlyphSecondary,
+                onAccent = onAccent,
+                onClick = onGlyphClick,
+            )
             if (showLineBelow) {
                 Box(
                     modifier = Modifier
@@ -461,11 +469,20 @@ private fun StopGlyph(
     accent: Color,
     stopGlyphSecondary: Color,
     onAccent: Color,
+    onClick: () -> Unit,
 ) {
     val ring = if (isFirst) accent else stopGlyphSecondary
+    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
-            .size(22.dp)
+            .size(28.dp)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .background(ring, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
