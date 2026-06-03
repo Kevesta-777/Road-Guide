@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.PersonAdd
@@ -74,6 +75,7 @@ internal fun ProfileFriendsSection(
     onMyQrCode: () -> Unit,
     onAddFriend: () -> Unit,
     onFriendsList: () -> Unit,
+    onCompanionFinder: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -83,6 +85,14 @@ internal fun ProfileFriendsSection(
             sheetTheme = sheetTheme,
         )
         AuthGroupedCard(sheetTheme = sheetTheme) {
+            AuthNavRow(
+                icon = Icons.Outlined.DirectionsCar,
+                title = stringResource(R.string.companion_title),
+                subtitle = stringResource(R.string.companion_subtitle),
+                sheetTheme = sheetTheme,
+                onClick = onCompanionFinder,
+            )
+            AuthNavDivider(sheetTheme = sheetTheme)
             AuthNavRow(
                 icon = Icons.Outlined.QrCode2,
                 title = stringResource(R.string.friends_my_qr),

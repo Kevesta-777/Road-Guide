@@ -195,6 +195,8 @@ internal fun AuthOverlayHost(
 
                 onFriendsList = { onNavigate(AuthDestination.Friends) },
 
+                onCompanionFinder = { onNavigate(AuthDestination.CompanionFinder) },
+
             )
 
         }
@@ -299,6 +301,30 @@ internal fun AuthOverlayHost(
 
             )
 
+        }
+
+        AuthDestination.CompanionFinder -> {
+            CompanionFinderScreen(
+                modifier = modifier,
+                onBack = { onNavigate(AuthDestination.UserProfile) },
+                onOfferRide = { onNavigate(AuthDestination.CompanionOfferRide) },
+                onBrowseRides = { onNavigate(AuthDestination.CompanionBrowseRides) },
+            )
+        }
+
+        AuthDestination.CompanionOfferRide -> {
+            CompanionOfferRideScreen(
+                modifier = modifier,
+                onBack = { onNavigate(AuthDestination.CompanionFinder) },
+                onRideOffered = { onNavigate(AuthDestination.CompanionBrowseRides) },
+            )
+        }
+
+        AuthDestination.CompanionBrowseRides -> {
+            CompanionBrowseRidesScreen(
+                modifier = modifier,
+                onBack = { onNavigate(AuthDestination.CompanionFinder) },
+            )
         }
 
     }

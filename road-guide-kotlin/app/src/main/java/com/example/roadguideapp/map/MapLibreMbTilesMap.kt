@@ -857,6 +857,7 @@ fun MapLibreMbTilesMap(
                                 onMyQrCode = { authDestination = AuthDestination.MyQrCode },
                                 onAddFriend = { authDestination = AuthDestination.AddFriendMenu },
                                 onFriendsList = { authDestination = AuthDestination.Friends },
+                                onCompanionFinder = { authDestination = AuthDestination.CompanionFinder },
                                 modifier = sheetModifier,
                             )
                         }

@@ -13,14 +13,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,37 +37,41 @@ internal fun PeliasSearchResultsList(
     query: String,
     onResultSelected: (PeliasSearchResult) -> Unit,
     isNearbyCategoryResults: Boolean = false,
+    embeddedInForm: Boolean = false,
+    minQueryLengthToShow: Int = 0,
     modifier: Modifier = Modifier,
 ) {
+    val trimmedQuery = query.trim()
+    if (
+        minQueryLengthToShow > 0 &&
+        trimmedQuery.length < minQueryLengthToShow &&
+        !loading &&
+        errorMessage == null
+    ) {
+        return
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(14.dp),
+            .then(
+                if (embeddedInForm) {
+                    Modifier
+                } else {
+                    Modifier.padding(horizontal = 16.dp)
+                },
+            ),
+        shape = RoundedCornerShape(SearchCardCornerRadius),
         color = sheetTheme.cardElevated,
-        shadowElevation = 1.dp,
+        shadowElevation = 2.dp,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             when {
                 loading -> {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = sheetTheme.accent,
-                            strokeWidth = 2.dp,
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = stringResource(R.string.apple_search_loading),
-                            color = sheetTheme.secondaryText,
-                            fontSize = 15.sp,
-                        )
-                    }
+                    SearchLoadingRow(
+                        sheetTheme = sheetTheme,
+                        message = stringResource(R.string.apple_search_loading),
+                    )
                 }
 
                 errorMessage != null -> {
@@ -81,35 +85,46 @@ internal fun PeliasSearchResultsList(
                 }
 
                 query.trim().isEmpty() -> {
-                    Text(
-                        text = stringResource(R.string.apple_search_type_to_search),
-                        color = sheetTheme.secondaryText,
-                        fontSize = 15.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    if (minQueryLengthToShow > 0) {
+                        return@Column
+                    }
+                    SearchEmptyState(
+                        title = stringResource(R.string.apple_search_type_to_search),
+                        sheetTheme = sheetTheme,
+                        modifier = Modifier.padding(vertical = 4.dp),
                     )
                 }
 
                 suggestions.isEmpty() -> {
-                    Text(
-                        text = stringResource(
+                    SearchEmptyState(
+                        title = stringResource(
                             if (isNearbyCategoryResults) {
                                 R.string.apple_nearby_no_results
                             } else {
                                 R.string.apple_search_no_results
                             },
                         ),
-                        color = sheetTheme.secondaryText,
-                        fontSize = 15.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        sheetTheme = sheetTheme,
+                        subtitle = if (!isNearbyCategoryResults) {
+                            stringResource(R.string.apple_search_no_results_hint)
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.padding(vertical = 4.dp),
                     )
                 }
 
                 else -> {
+                    SearchResultsCountLabel(
+                        count = suggestions.size,
+                        sheetTheme = sheetTheme,
+                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp),
+                    )
                     suggestions.forEachIndexed { index, result ->
                         if (index > 0) {
                             HorizontalDivider(
                                 color = sheetTheme.divider,
-                                modifier = Modifier.padding(start = 68.dp),
+                                modifier = Modifier.padding(start = 68.dp, end = 12.dp),
                             )
                         }
                         PeliasSearchResultRow(
@@ -118,6 +133,7 @@ internal fun PeliasSearchResultsList(
                             onClick = { onResultSelected(result) },
                         )
                     }
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
             }
         }
@@ -131,12 +147,13 @@ private fun PeliasSearchResultRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val iconStyle = layerIconStyle(result.layer)
+    val iconStyle = peliasLayerIconStyle(result.layer)
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -145,11 +162,11 @@ private fun PeliasSearchResultRow(
                 .background(iconStyle.background, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = iconStyle.glyph,
-                color = iconStyle.foreground,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
+            Icon(
+                imageVector = iconStyle.icon,
+                contentDescription = null,
+                tint = iconStyle.foreground,
+                modifier = Modifier.size(22.dp),
             )
         }
         Spacer(modifier = Modifier.width(12.dp))
@@ -170,25 +187,9 @@ private fun PeliasSearchResultRow(
                     fontSize = 14.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    lineHeight = 18.sp,
                 )
             }
         }
-    }
-}
-
-private data class LayerIconStyle(
-    val glyph: String,
-    val background: Color,
-    val foreground: Color,
-)
-
-private fun layerIconStyle(layer: String?): LayerIconStyle {
-    return when (layer?.lowercase()) {
-        "venue", "address" -> LayerIconStyle("📍", Color(0xFFE8D4F8), Color(0xFF7D3BB8))
-        "street", "intersection" -> LayerIconStyle("🛣", Color(0xFFE5E5EA), Color(0xFF48484A))
-        "locality", "localadmin", "borough", "neighbourhood" ->
-            LayerIconStyle("🏙", Color(0xFFE5E5EA), Color(0xFF48484A))
-        "region", "macroregion", "country" -> LayerIconStyle("🌍", Color(0xFFE5E5EA), Color(0xFF48484A))
-        else -> LayerIconStyle("•", Color(0xFFE5E5EA), Color(0xFF48484A))
     }
 }

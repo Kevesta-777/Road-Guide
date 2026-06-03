@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Car, Users, MapPin, Clock, Calendar, DollarSign, CheckCircle, XCircle, AlertTriangle, Search, Filter, Navigation, UserCheck, Shield, TrendingUp, MessageSquare } from "lucide-react";
+import { Car, Users, MapPin, Clock, Calendar, DollarSign, CheckCircle, AlertTriangle, Search, Filter, Navigation, UserCheck, Shield, TrendingUp, RefreshCw, MessageSquare } from "lucide-react";
 import { useAdminCollection } from "../hooks/useAdminResource";
+import { apiPost } from "../lib/api";
 
 type DriverPost = {
-  id: number;
+  id: string;
   driver: string;
-  driverId: number;
+  driverId: string;
   verified: boolean;
   from: string;
   to: string;
@@ -24,9 +25,9 @@ type DriverPost = {
 };
 
 type PassengerRequest = {
-  id: number;
+  id: string;
   passenger: string;
-  passengerId: number;
+  passengerId: string;
   verified: boolean;
   from: string;
   to: string;
@@ -39,22 +40,25 @@ type PassengerRequest = {
   postedAt: string;
   matches: number;
   matchedDriver?: string;
+  source?: string;
 };
 
 type MatchSuggestion = {
-  id: number;
-  driverPost: number;
-  passengerRequest: number;
+  id: string;
+  driverPost: string;
+  passengerRequest: string;
   matchScore: number;
   reasons: string[];
   status: string;
 };
 
-const fallbackDriverPosts: DriverPost[] = [
+const fallbackDriverPosts: DriverPost[] = [];
+
+const _unusedFallbackDriverPosts: DriverPost[] = [
   {
-    id: 1,
+    id: "demo-1",
     driver: "John Smith",
-    driverId: 101,
+    driverId: "demo-user-101",
     verified: true,
     from: "123 Main St, Downtown",
     to: "456 Oak Ave, Airport",
@@ -72,9 +76,9 @@ const fallbackDriverPosts: DriverPost[] = [
     duration: "35 min"
   },
   {
-    id: 2,
+    id: "demo-2",
     driver: "Sarah Johnson",
-    driverId: 102,
+    driverId: "demo-user-102",
     verified: true,
     from: "789 Park Rd, Uptown",
     to: "234 Beach Dr, Coast City",
@@ -92,9 +96,9 @@ const fallbackDriverPosts: DriverPost[] = [
     duration: "55 min"
   },
   {
-    id: 3,
+    id: "demo-3",
     driver: "Mike Chen",
-    driverId: 103,
+    driverId: "demo-user-103",
     verified: false,
     from: "321 Elm St, West Side",
     to: "654 University Ave, College Town",
@@ -112,9 +116,9 @@ const fallbackDriverPosts: DriverPost[] = [
     duration: "25 min"
   },
   {
-    id: 4,
+    id: "demo-4",
     driver: "Emma Wilson",
-    driverId: 104,
+    driverId: "demo-user-104",
     verified: true,
     from: "987 Maple Dr, South District",
     to: "555 Tech Blvd, Innovation Quarter",
@@ -133,11 +137,13 @@ const fallbackDriverPosts: DriverPost[] = [
   },
 ];
 
-const fallbackPassengerRequests: PassengerRequest[] = [
+const fallbackPassengerRequests: PassengerRequest[] = [];
+
+const _unusedFallbackPassengerRequests: PassengerRequest[] = [
   {
-    id: 1,
+    id: "demo-req-1",
     passenger: "David Lee",
-    passengerId: 201,
+    passengerId: "demo-user-201",
     verified: true,
     from: "150 Main St, Downtown",
     to: "450 Oak Ave, Airport Area",
@@ -151,9 +157,9 @@ const fallbackPassengerRequests: PassengerRequest[] = [
     matches: 2
   },
   {
-    id: 2,
+    id: "demo-req-2",
     passenger: "Anna Martinez",
-    passengerId: 202,
+    passengerId: "demo-user-202",
     verified: true,
     from: "800 Park Rd, Uptown",
     to: "250 Beach Dr, Coast City",
@@ -168,9 +174,9 @@ const fallbackPassengerRequests: PassengerRequest[] = [
     matchedDriver: "Sarah Johnson"
   },
   {
-    id: 3,
+    id: "demo-req-3",
     passenger: "Tom Wilson",
-    passengerId: 203,
+    passengerId: "demo-user-203",
     verified: false,
     from: "300 Elm St, West Side",
     to: "600 University Ave, College Town",
@@ -186,45 +192,50 @@ const fallbackPassengerRequests: PassengerRequest[] = [
   },
 ];
 
-const fallbackMatchingSuggestions: MatchSuggestion[] = [
-  {
-    id: 1,
-    driverPost: 1,
-    passengerRequest: 1,
-    matchScore: 95,
-    reasons: ["Same route", "Time match", "Price compatible"],
-    status: "Pending"
-  },
-  {
-    id: 2,
-    driverPost: 2,
-    passengerRequest: 2,
-    matchScore: 88,
-    reasons: ["Similar route", "Time match"],
-    status: "Accepted"
-  },
-];
+const fallbackMatchingSuggestions: MatchSuggestion[] = [];
 
 export function CompanionFinderManagement() {
   const [selectedTab, setSelectedTab] = useState<"overview" | "drivers" | "passengers" | "matches" | "safety">("overview");
   const [filterStatus, setFilterStatus] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
 
-  const { data: driverPosts } = useAdminCollection<DriverPost>(
+  const { data: driverPosts, refresh: refreshDriverPosts } = useAdminCollection<DriverPost>(
     "/companion/driver-posts",
     fallbackDriverPosts,
   );
-  const { data: passengerRequests } = useAdminCollection<PassengerRequest>(
+  const { data: passengerRequests, refresh: refreshPassengerRequests } = useAdminCollection<PassengerRequest>(
     "/companion/passenger-requests",
     fallbackPassengerRequests,
   );
-  const { data: matchingSuggestions } = useAdminCollection<MatchSuggestion>(
+  const { data: matchingSuggestions, refresh: refreshMatches } = useAdminCollection<MatchSuggestion>(
     "/companion/matches",
     fallbackMatchingSuggestions,
   );
 
+  const refreshAll = () => {
+    refreshDriverPosts();
+    refreshPassengerRequests();
+    refreshMatches();
+  };
+
+  const runAction = async (label: string, action: () => Promise<void>) => {
+    setActionBusy(true);
+    setActionMessage(label);
+    try {
+      await action();
+      refreshAll();
+    } finally {
+      setActionBusy(false);
+      setActionMessage("");
+    }
+  };
+
   const activeDriverPosts = driverPosts.filter(p => p.status === "Active").length;
-  const activePasRequests = passengerRequests.filter(p => p.status === "Looking").length;
+  const activePasRequests = passengerRequests.filter(
+    p => p.status === "Looking" || p.source === "direct_booking",
+  ).length;
   const completedRides = driverPosts.filter(p => p.status === "Completed").length;
   const totalMatches = passengerRequests.filter(p => p.status === "Matched" || p.status === "Completed").length;
 
@@ -255,6 +266,14 @@ export function CompanionFinderManagement() {
           <p className="text-muted-foreground">Manage carpooling posts, match drivers with passengers, and promote eco-friendly travel</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={refreshAll}
+            className="px-4 py-2 bg-card border border-border rounded-lg hover:bg-accent transition-colors flex items-center gap-2"
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
           <button
             onClick={() => setSelectedTab("overview")}
             className={`px-4 py-2 rounded-lg transition-colors ${
@@ -307,6 +326,13 @@ export function CompanionFinderManagement() {
           </button>
         </div>
       </div>
+
+      {(actionBusy || actionMessage) && (
+        <div className="bg-card border border-border rounded-lg p-3 text-sm flex items-center justify-between">
+          <span className="text-muted-foreground">{actionBusy ? actionMessage : actionMessage}</span>
+          {actionBusy && <span className="text-muted-foreground">Working…</span>}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-card border border-border rounded-lg p-5">
@@ -694,7 +720,15 @@ export function CompanionFinderManagement() {
                         View Details
                       </button>
                       {post.status === "Active" && (
-                        <button className="px-3 py-2 border border-border rounded-lg hover:bg-accent transition-colors text-sm">
+                        <button
+                          className="px-3 py-2 border border-border rounded-lg hover:bg-accent transition-colors text-sm"
+                          onClick={() => {
+                            void runAction("This build does not implement messaging yet.", async () => {
+                              // Placeholder: message feature can be integrated with chat moderation later.
+                            });
+                          }}
+                          title="Messaging is not implemented yet"
+                        >
                           <MessageSquare className="w-4 h-4" />
                         </button>
                       )}
@@ -761,6 +795,9 @@ export function CompanionFinderManagement() {
                             )}
                           </p>
                           <p className="text-sm text-muted-foreground">{req.passengers} passenger(s)</p>
+                          {req.source === "direct_booking" && (
+                            <p className="text-xs text-blue-600 font-medium">Booked via Browse Rides</p>
+                          )}
                         </div>
                       </div>
                       <span className={`px-3 py-1 rounded-full text-sm ${
@@ -839,7 +876,15 @@ export function CompanionFinderManagement() {
                         View Details
                       </button>
                       {req.status === "Looking" && (
-                        <button className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
+                        <button
+                          className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                          onClick={() => {
+                            void runAction("Recomputing matches…", async () => {
+                              await apiPost(`/companion/matches/recompute`, { passengerRequestId: req.id });
+                            });
+                          }}
+                          disabled={actionBusy}
+                        >
                           Find Match
                         </button>
                       )}
@@ -951,10 +996,26 @@ export function CompanionFinderManagement() {
 
                     {match.status === "Pending" && (
                       <div className="flex gap-3 mt-4 pt-4 border-t border-border">
-                        <button className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                        <button
+                          className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                          onClick={() => {
+                            void runAction("Notifying both parties…", async () => {
+                              await apiPost(`/companion/matches/${match.id}/notify`, {});
+                            });
+                          }}
+                          disabled={actionBusy}
+                        >
                           Notify Both Parties
                         </button>
-                        <button className="px-4 py-2 border border-border rounded-lg hover:bg-accent transition-colors">
+                        <button
+                          className="px-4 py-2 border border-border rounded-lg hover:bg-accent transition-colors"
+                          onClick={() => {
+                            void runAction("Dismissing match…", async () => {
+                              await apiPost(`/companion/matches/${match.id}/dismiss`, {});
+                            });
+                          }}
+                          disabled={actionBusy}
+                        >
                           Dismiss
                         </button>
                       </div>

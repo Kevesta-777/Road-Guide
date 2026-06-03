@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Crown, Users, DollarSign, TrendingUp, Edit, Save, X, Check, Sparkles, Zap, Star, Shield } from "lucide-react";
 import { useAdminCollection } from "../hooks/useAdminResource";
+import { apiPut, apiPost } from "../lib/api";
 
 type PlanFeature = { name: string; included: boolean };
 
 type SubscriptionPlan = {
-  id: number;
+  id: string;
   name: string;
   type: string;
   price: number;
@@ -16,7 +17,7 @@ type SubscriptionPlan = {
 };
 
 type PremiumContentItem = {
-  id: number;
+  id: string;
   name: string;
   category: string;
   enabled: boolean;
@@ -25,7 +26,7 @@ type PremiumContentItem = {
 
 const fallbackSubscriptionPlans: SubscriptionPlan[] = [
   {
-    id: 1,
+    id: "plan-free",
     name: "Free",
     type: "free",
     price: 0,
@@ -43,7 +44,7 @@ const fallbackSubscriptionPlans: SubscriptionPlan[] = [
     ]
   },
   {
-    id: 2,
+    id: "plan-premium",
     name: "Premium",
     type: "premium",
     price: 9.99,
@@ -68,28 +69,28 @@ const fallbackSubscriptionPlans: SubscriptionPlan[] = [
 ];
 
 const fallbackPremiumContent: PremiumContentItem[] = [
-  { id: 1, name: "Advanced Traffic Layer", category: "Map Layer", enabled: true, premiumOnly: true },
-  { id: 2, name: "3D Buildings View", category: "Map Layer", enabled: true, premiumOnly: true },
-  { id: 3, name: "Satellite Imagery", category: "Map Layer", enabled: true, premiumOnly: true },
-  { id: 4, name: "Offline Map Downloads", category: "Feature", enabled: true, premiumOnly: true },
-  { id: 5, name: "Premium Voice Pack 1", category: "Navigation", enabled: true, premiumOnly: true },
-  { id: 6, name: "Premium Voice Pack 2", category: "Navigation", enabled: true, premiumOnly: true },
-  { id: 7, name: "Dark Mode Themes", category: "Customization", enabled: true, premiumOnly: true },
-  { id: 8, name: "Custom POI Icons", category: "Customization", enabled: true, premiumOnly: true },
-  { id: 9, name: "Exclusive Landmark Tours", category: "Content", enabled: true, premiumOnly: true },
-  { id: 10, name: "Advanced AI Recommendations", category: "AI Feature", enabled: true, premiumOnly: true },
+  { id: "pc-1", name: "Advanced Traffic Layer", category: "Map Layer", enabled: true, premiumOnly: true },
+  { id: "pc-2", name: "3D Buildings View", category: "Map Layer", enabled: true, premiumOnly: true },
+  { id: "pc-3", name: "Satellite Imagery", category: "Map Layer", enabled: true, premiumOnly: true },
+  { id: "pc-4", name: "Offline Map Downloads", category: "Feature", enabled: true, premiumOnly: true },
+  { id: "pc-5", name: "Premium Voice Pack 1", category: "Navigation", enabled: true, premiumOnly: true },
+  { id: "pc-6", name: "Premium Voice Pack 2", category: "Navigation", enabled: true, premiumOnly: true },
+  { id: "pc-7", name: "Dark Mode Themes", category: "Customization", enabled: true, premiumOnly: true },
+  { id: "pc-8", name: "Custom POI Icons", category: "Customization", enabled: true, premiumOnly: true },
+  { id: "pc-9", name: "Exclusive Landmark Tours", category: "Content", enabled: true, premiumOnly: true },
+  { id: "pc-10", name: "Advanced AI Recommendations", category: "AI Feature", enabled: true, premiumOnly: true },
 ];
 
 export function SubscriptionManagement() {
-  const [editingPlan, setEditingPlan] = useState<number | null>(null);
+  const [editingPlan, setEditingPlan] = useState<string | null>(null);
   const [editedPrice, setEditedPrice] = useState<number>(0);
   const [selectedTab, setSelectedTab] = useState<"plans" | "content" | "analytics">("plans");
 
-  const { data: subscriptionPlans } = useAdminCollection<SubscriptionPlan>(
+  const { data: subscriptionPlans, refresh: refreshPlans } = useAdminCollection<SubscriptionPlan>(
     "/subscriptions/plans",
     fallbackSubscriptionPlans,
   );
-  const { data: premiumContent } = useAdminCollection<PremiumContentItem>(
+  const { data: premiumContent, refresh: refreshContent } = useAdminCollection<PremiumContentItem>(
     "/subscriptions/premium-content",
     fallbackPremiumContent,
   );
@@ -98,12 +99,14 @@ export function SubscriptionManagement() {
   const conversionRate = (26349 / (98234 + 26349)) * 100;
   const monthlyGrowth = 12.5;
 
-  const handleEditPrice = (planId: number, currentPrice: number) => {
+  const handleEditPrice = (planId: string, currentPrice: number) => {
     setEditingPlan(planId);
     setEditedPrice(currentPrice);
   };
 
-  const handleSavePrice = () => {
+  const handleSavePrice = async (planId: string) => {
+    await apiPut(`/subscriptions/plans/${planId}`, { price: editedPrice });
+    await refreshPlans();
     setEditingPlan(null);
   };
 
@@ -232,7 +235,7 @@ export function SubscriptionManagement() {
                         />
                         <div className="flex gap-1">
                           <button
-                            onClick={handleSavePrice}
+                            onClick={() => handleSavePrice(plan.id)}
                             className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                           >
                             <Save className="w-4 h-4" />
@@ -348,7 +351,10 @@ export function SubscriptionManagement() {
                           type="checkbox"
                           checked={content.enabled}
                           className="sr-only peer"
-                          readOnly
+                          onChange={async () => {
+                            await apiPut(`/subscriptions/premium-content/${content.id}`, { enabled: !content.enabled });
+                            await refreshContent();
+                          }}
                         />
                         <div className="w-11 h-6 bg-gray-200 dark:bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
                       </label>

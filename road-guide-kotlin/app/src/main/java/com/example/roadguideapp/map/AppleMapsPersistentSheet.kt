@@ -423,76 +423,18 @@ private fun AppleMapsSearchField(
     onSearchClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .height(48.dp)
-            .background(sheetTheme.searchFieldFill, RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.Search,
-            contentDescription = null,
-            tint = sheetTheme.searchFieldHint,
-            modifier = Modifier
-                .size(22.dp)
-                .appleMapsSheetInteractiveBlock(),
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        BasicTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .focusRequester(focusRequester)
-                .onFocusChanged { state ->
-                    if (state.isFocused) {
-                        onSearchFocus()
-                    }
-                },
-            textStyle = TextStyle(
-                color = sheetTheme.searchFieldText,
-                fontSize = 17.sp,
-            ),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearchSubmit(searchQuery) }),
-            cursorBrush = SolidColor(sheetTheme.searchFieldText),
-            decorationBox = { innerTextField ->
-                Box(Modifier.fillMaxWidth()) {
-                    if (searchQuery.isEmpty()) {
-                        Text(
-                            text = stringResource(R.string.apple_search_placeholder),
-                            color = sheetTheme.searchFieldHint,
-                            fontSize = 17.sp,
-                        )
-                    }
-                    innerTextField()
-                }
-            },
-        )
-        if (searchQuery.isNotEmpty()) {
-            Icon(
-                imageVector = Icons.Outlined.Close,
-                contentDescription = stringResource(R.string.apple_close),
-                tint = sheetTheme.searchFieldHint,
-                modifier = Modifier
-                    .size(22.dp)
-                    .appleMapsSheetInteractiveBlock()
-                    .clickable(onClick = onSearchClear),
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Outlined.Mic,
-                contentDescription = stringResource(R.string.apple_voice_search),
-                tint = sheetTheme.searchFieldHint,
-                modifier = Modifier
-                    .size(22.dp)
-                    .appleMapsSheetInteractiveBlock(),
-            )
-        }
-    }
+    SearchTextField(
+        value = searchQuery,
+        onValueChange = onSearchQueryChange,
+        placeholder = stringResource(R.string.apple_search_placeholder),
+        sheetTheme = sheetTheme,
+        modifier = modifier.appleMapsSheetInteractiveBlock(),
+        focusRequester = focusRequester,
+        onFocus = onSearchFocus,
+        onSubmit = { onSearchSubmit(searchQuery) },
+        onClear = onSearchClear,
+        showClearWhenNonEmpty = true,
+    )
 }
 
 @Composable
