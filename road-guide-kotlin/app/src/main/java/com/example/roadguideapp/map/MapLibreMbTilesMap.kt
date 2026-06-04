@@ -181,7 +181,6 @@ fun MapLibreMbTilesMap(
     val resolvedBackendPoiIds = remember { mutableStateMapOf<String, String>() }
     var routePlanTick by remember { mutableIntStateOf(0) }
     var showOfflineGraphImportAlert by remember { mutableStateOf(false) }
-    var showOfflineRoutingRequiredAlert by remember { mutableStateOf(false) }
     var graphImportInProgress by remember { mutableStateOf(false) }
     var graphRestoreInProgress by remember { mutableStateOf(false) }
     var graphImportStatusMessage by remember { mutableStateOf("") }
@@ -215,11 +214,14 @@ fun MapLibreMbTilesMap(
     val onAddStopRequested: () -> Unit = {
         clearActiveRouteOverlay()
         sheetStack.popAddStopOverlays()
-        val offlineReady = offlineGraphLoaded && OfflineGraphEngine.isLoaded()
-        if (offlineReady) {
-            sheetStack.push(AppleMapSheet.AddStop)
-        } else {
-            showOfflineRoutingRequiredAlert = true
+        when {
+            OfflineGraphEngine.isLoaded() -> {
+                offlineGraphLoaded = true
+                sheetStack.push(AppleMapSheet.AddStop)
+            }
+            graphImportInProgress || graphRestoreInProgress -> Unit
+            DirectionsRoutingService.hasSavedGraph(context) -> Unit
+            else -> showOfflineGraphImportAlert = true
         }
     }
 
@@ -261,6 +263,7 @@ fun MapLibreMbTilesMap(
                             origin = tripOrigin,
                             stops = tripStops,
                             valhallaRoute = route,
+                            travelMode = directions.travelMode,
                         )
                         controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
                     }
@@ -323,6 +326,7 @@ fun MapLibreMbTilesMap(
                     stops = tripStops,
                     valhallaRoute = route,
                     revealProgress = 1f,
+                    travelMode = directions.travelMode,
                 )
             }
         }
@@ -346,6 +350,13 @@ fun MapLibreMbTilesMap(
         is3d = true
         sheetStack.updateAllSyncedSnaps(AppleSheetSnap.Peek)
         MapStyleRuntime.apply3dVisuals(map, style, enabled = true)
+        MapStyleRuntime.syncBuilding3dVisibility(
+            map = map,
+            style = style,
+            userWants3d = true,
+            suppressForCameraMotion = false,
+            activeNavigation = true,
+        )
         map.uiSettings.apply {
             isScrollGesturesEnabled = false
             isRotateGesturesEnabled = false
@@ -391,6 +402,7 @@ fun MapLibreMbTilesMap(
             origin = tripOrigin,
             stops = tripStops,
             valhallaRoute = route,
+            travelMode = directions.travelMode,
         )
         camera.enter(displayFrame)
         if (!navigationEngine.start()) {
@@ -688,6 +700,7 @@ fun MapLibreMbTilesMap(
         controller.mapRuntime,
         activeRouteResult,
         activeDirections?.tripWaypoints?.map { it.id },
+        activeDirections?.travelMode,
         isNavigationActive,
     ) {
         if (isNavigationActive) return@LaunchedEffect
@@ -706,6 +719,7 @@ fun MapLibreMbTilesMap(
                 stops = tripStops,
                 valhallaRoute = route,
                 revealProgress = 1f,
+                travelMode = directions.travelMode,
             )
             controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
         }
@@ -770,7 +784,7 @@ fun MapLibreMbTilesMap(
         isRouteCalculating = true
         isRouteRefining = DirectionsRoutingService.hasSavedGraph(context) &&
             !OfflineGraphEngine.isLoaded()
-            
+
         val waypoints = directions.tripWaypoints.map { it.latLng }
         val valhallaRoute = ValhallaRouteClient.fetchRoute(waypoints, directions.travelMode)
         val fullGeometry = valhallaRoute?.geometry?.takeIf { it.size >= 2 }
@@ -863,6 +877,7 @@ fun MapLibreMbTilesMap(
                 stops = tripStops,
                 valhallaRoute = route,
                 revealProgress = progress,
+                travelMode = directions.travelMode,
             )
             controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
         }
@@ -1058,6 +1073,7 @@ fun MapLibreMbTilesMap(
                                             style = runtime.second,
                                             userWants3d = true,
                                             suppressForCameraMotion = suppressForCameraMotion,
+                                            activeNavigation = isNavigationActiveRef.value,
                                         )
                                     }
                                     fun publishMapOverlayPositions() {
@@ -1319,11 +1335,12 @@ fun MapLibreMbTilesMap(
                                         )
                                         sheetStack.popAddStopOverlays()
                                         coroutineScope.launch {
-                                            if (DirectionsRoutingService.canRoute(context)) {
-                                                routePlanTick++
-                                            } else {
-                                                onAddStopRequested()
+                                            if (!DirectionsRoutingService.hasSavedGraph(context) &&
+                                                !DirectionsRoutingService.canRoute(context)
+                                            ) {
+                                                showOfflineGraphImportAlert = true
                                             }
+                                            routePlanTick++
                                         }
                                     }
                                 },
@@ -1514,7 +1531,9 @@ fun MapLibreMbTilesMap(
                                 routeSource = activeRouteSource,
                                 isRouteCalculating = isRouteCalculating,
                                 isRouteRefining = isRouteRefining,
-                                offlineGraphLoaded = offlineGraphLoaded,
+                                showOfflineRoutingImport =
+                                    controller.mapStyleMode != ResolvedMapStyle.Mode.Online &&
+                                    !DirectionsRoutingService.isOfflineRoutingConfigured(context),
                                 onImportGraphClick = {
                                     showOfflineGraphImportAlert = true
                                 },
@@ -1771,20 +1790,6 @@ fun MapLibreMbTilesMap(
             )
         }
 
-        OfflineGraphImportProgressOverlay(
-            visible = graphImportInProgress || graphRestoreInProgress,
-            statusMessage = graphImportStatusMessage.ifBlank {
-                stringResource(
-                    if (graphRestoreInProgress) {
-                        R.string.directions_offline_import_restoring
-                    } else {
-                        R.string.directions_offline_import_in_progress
-                    },
-                )
-            },
-            progressPercent = graphImportProgressPercent,
-        )
-
         if (showOfflineGraphImportAlert) {
             OfflineGraphImportAlertDialog(
                 onDismiss = { showOfflineGraphImportAlert = false },
@@ -1792,16 +1797,7 @@ fun MapLibreMbTilesMap(
                     graphImportInProgress = true
                     graphFolderPicker.launch(null)
                 },
-                onImportZipClick = {
-                    graphImportInProgress = true
-                    graphZipPicker.launch(
-                        arrayOf(
-                            "application/zip",
-                            "application/x-zip-compressed",
-                            "*/*",
-                        ),
-                    )
-                },
+                
                 isImporting = graphImportInProgress,
             )
         }
@@ -1872,11 +1868,22 @@ fun MapLibreMbTilesMap(
             )
         }
 
-        // Last in stack: modal window above map (AndroidView), sheets, auth, and other dialogs.
-        OfflineRoutingRequiredModal(
-            visible = showOfflineRoutingRequiredAlert,
-            onDismiss = { showOfflineRoutingRequiredAlert = false },
+        // Full-screen centered overlay above map, sheets, auth, and dialogs.
+        OfflineGraphImportProgressOverlay(
+            visible = graphImportInProgress || graphRestoreInProgress,
+            statusMessage = graphImportStatusMessage.ifBlank {
+                stringResource(
+                    if (graphRestoreInProgress) {
+                        R.string.directions_offline_import_restoring
+                    } else {
+                        R.string.directions_offline_import_in_progress
+                    },
+                )
+            },
+            progressPercent = graphImportProgressPercent,
         )
+
+        // Last in stack: modal window above map (AndroidView), sheets, auth, and other dialogs.
     }
 }
 

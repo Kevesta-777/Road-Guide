@@ -24,6 +24,7 @@ internal object DirectionsNavigationFrameResolver {
         origin: MapPlaceDetail,
         stops: List<MapPlaceDetail>,
         valhallaRoute: DirectionsRouteResult?,
+        travelMode: DirectionsTravelMode,
     ) {
         val anchor = LatLng(frame.lat, frame.lng)
         DirectionsNavigationVehicleLayer.sync(
@@ -42,6 +43,7 @@ internal object DirectionsNavigationFrameResolver {
             routeStartPosition = anchor,
             routeStartDistanceM = frame.routeSliceDistanceM,
             routeTrimAheadM = DirectionsNavConfig.ROUTE_TRIM_BEHIND_MARKER_M,
+            travelMode = travelMode,
         )
     }
 }

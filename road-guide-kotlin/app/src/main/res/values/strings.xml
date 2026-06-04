@@ -385,9 +385,8 @@
     <string name="nav_height_range">0.5–10m</string>
     <string name="nav_speed_unit">m/s</string>
     <string name="directions_offline_import_title">Offline routing</string>
-    <string name="directions_offline_import_message">Copy the graph-cache folder from prepare_graph.ps1 onto your phone, then tap Import and select that graph-cache folder (not a parent folder). ZIP import is optional.</string>
+    <string name="directions_offline_import_message">Choose the graph-cache folder to import offline routing data.</string>
     <string name="directions_offline_import_action_folder">Import graph folder</string>
-    <string name="directions_offline_import_action_zip">Import ZIP instead</string>
     <string name="directions_offline_import_copying_folder">Copying graph folder…</string>
     <string name="directions_offline_import_in_progress">Importing graph…</string>
     <string name="directions_offline_import_extracting">Extracting graph ZIP…</string>
@@ -399,7 +398,6 @@
     <string name="directions_offline_import_success">Graph imported. Calculating route…</string>
     <string name="directions_offline_import_failed">Graph import failed: %1$s</string>
     <string name="directions_routing_unavailable">Routing server unavailable. Import a graph ZIP or connect to the network.</string>
-    <string name="directions_offline_routing_required">Option offline routing, please</string>
     <string name="apple_ok">OK</string>
     <string name="directions_route_failed">Could not calculate a route for these points.</string>
     <string name="directions_offline_route_failed">Could not route on the offline map. Make sure your stops are inside the imported map area.</string>

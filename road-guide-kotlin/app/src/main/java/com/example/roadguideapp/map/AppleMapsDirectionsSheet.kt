@@ -76,7 +76,7 @@ internal fun AppleMapsDirectionsPanel(
     routeSource: DirectionsRouteSource? = null,
     isRouteCalculating: Boolean = false,
     isRouteRefining: Boolean = false,
-    offlineGraphLoaded: Boolean = false,
+    showOfflineRoutingImport: Boolean = false,
     /** Legs in the full trip (for cumulative ETA / distance on the map route). */
     tripLegCount: Int = 0,
     onImportGraphClick: (() -> Unit)? = null,
@@ -287,7 +287,7 @@ internal fun AppleMapsDirectionsPanel(
                     )
                 }
 
-                if (!offlineGraphLoaded && onImportGraphClick != null) {
+                if (showOfflineRoutingImport && onImportGraphClick != null) {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()

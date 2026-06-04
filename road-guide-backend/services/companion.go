@@ -679,15 +679,16 @@ func (s *Services) HandleAdminCompanionRecomputeMatches(w http.ResponseWriter, r
 
 func (s *Services) HandleCreateCompanionDriverPost(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFromContext(r)
-	snap, err := s.userSubscriptionSnapshot(u.ID)
-	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, "failed to verify subscription")
-		return
-	}
-	if !snap.CanOfferRide {
-		utils.WriteErr(w, http.StatusForbidden, "active Premium subscription required to post rides")
-		return
-	}
+	// Premium gating disabled until in-app subscription page is implemented.
+	// snap, err := s.userSubscriptionSnapshot(u.ID)
+	// if err != nil {
+	// 	utils.WriteErr(w, http.StatusInternalServerError, "failed to verify subscription")
+	// 	return
+	// }
+	// if !snap.CanOfferRide {
+	// 	utils.WriteErr(w, http.StatusForbidden, "active Premium subscription required to post rides")
+	// 	return
+	// }
 	var body struct {
 		From          string   `json:"from"`
 		To            string   `json:"to"`

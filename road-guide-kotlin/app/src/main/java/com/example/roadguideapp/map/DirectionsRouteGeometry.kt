@@ -5,6 +5,28 @@ import org.maplibre.android.geometry.LatLngBounds
 
 internal object DirectionsRouteGeometry {
 
+    /** Samples points along a polyline for dotted walk-route markers (spacing in meters). */
+    fun samplePointsAlongPolyline(points: List<LatLng>, spacingM: Double): List<LatLng> {
+        if (points.isEmpty()) return emptyList()
+        if (points.size == 1) return listOf(points.first())
+        val spacing = spacingM.coerceAtLeast(4.0)
+        val densified = densifyForRoadDisplay(points, maxSegmentLengthM = spacing * 0.45)
+        val out = ArrayList<LatLng>()
+        var sinceLastM = spacing
+        out.add(densified.first())
+        for (i in 1 until densified.size) {
+            sinceLastM += DirectionsPathOptimizer.haversineMeters(densified[i - 1], densified[i])
+            if (sinceLastM + 0.01 >= spacing) {
+                out.add(densified[i])
+                sinceLastM = 0.0
+            }
+        }
+        if (out.size < 2) {
+            out.add(densified.last())
+        }
+        return out
+    }
+
     fun boundsFor(points: List<LatLng>): LatLngBounds? {
         if (points.isEmpty()) return null
         val builder = LatLngBounds.Builder()

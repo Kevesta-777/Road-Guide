@@ -89,6 +89,7 @@ internal object MapStyleRuntime {
         style: Style,
         userWants3d: Boolean,
         suppressForCameraMotion: Boolean = false,
+        activeNavigation: Boolean = false,
     ) {
         if (!MapRenderSupport.safeToShowFillExtrusionBuildings()) {
             BuildingExtrusion.setBuilding3dVisible(style, visible = false)
@@ -97,7 +98,7 @@ internal object MapStyleRuntime {
 
         val zoomAllows3d = map.cameraPosition.zoom >= (AppMapStyle.BUILDING_3D_MIN_ZOOM - 0.01)
         var show3dBuildings = userWants3d && zoomAllows3d
-        if (MapRenderSupport.isLikelyAndroidEmulator()) {
+        if (MapRenderSupport.isLikelyAndroidEmulator() && !activeNavigation) {
             show3dBuildings = show3dBuildings &&
                 isBearingNearNorth(map.cameraPosition.bearing) &&
                 !suppressForCameraMotion
