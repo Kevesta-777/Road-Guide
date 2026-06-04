@@ -31,6 +31,8 @@ internal object NearbyCategorySearch {
 
     const val RESULT_LIMIT = 40
     const val POI_LAYERS = "venue"
+    /** Padding around a lone nearby hit so [LatLngBounds] is valid for camera fit. */
+    private const val SINGLE_RESULT_BOUNDS_PADDING_METERS = 600.0
 
     val shortcuts: List<AppleNearbyShortcut> = listOf(
         AppleNearbyShortcut(R.string.apple_cat_lunch, Color(0xFFFF9F0A), "🍴", "food"),
@@ -46,9 +48,14 @@ internal object NearbyCategorySearch {
 
     fun boundsForResults(results: List<PeliasSearchResult>): LatLngBounds? {
         if (results.isEmpty()) return null
-        val builder = LatLngBounds.Builder()
-        results.forEach { builder.include(it.latLng) }
-        return builder.build()
+        val points = results.map { it.latLng }
+        val distinctLocations = points.distinctBy { "${it.latitude},${it.longitude}" }
+        val bufferMeters = if (distinctLocations.size == 1) {
+            SINGLE_RESULT_BOUNDS_PADDING_METERS
+        } else {
+            0.0
+        }
+        return PolylineDistance.boundsWithBuffer(points, bufferMeters)
     }
 
     /**

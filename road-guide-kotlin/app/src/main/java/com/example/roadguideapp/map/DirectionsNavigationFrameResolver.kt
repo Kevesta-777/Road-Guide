@@ -1,5 +1,6 @@
 package com.example.roadguideapp.map
 
+import android.content.Context
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.Style
 
@@ -18,6 +19,7 @@ internal object DirectionsNavigationFrameResolver {
     }
 
     fun syncNavigationVisuals(
+        context: Context,
         style: Style,
         route: List<LatLng>,
         frame: DirectionsNavFrame,
@@ -25,14 +27,9 @@ internal object DirectionsNavigationFrameResolver {
         stops: List<MapPlaceDetail>,
         valhallaRoute: DirectionsRouteResult?,
         travelMode: DirectionsTravelMode,
+        isDarkAppearance: Boolean,
     ) {
         val anchor = LatLng(frame.lat, frame.lng)
-        DirectionsNavigationVehicleLayer.sync(
-            style = style,
-            lat = anchor.latitude,
-            lng = anchor.longitude,
-            bearingDegrees = frame.bearingDegrees,
-        )
         DirectionsRouteOverlay.sync(
             style = style,
             origin = origin,
@@ -43,6 +40,15 @@ internal object DirectionsNavigationFrameResolver {
             routeStartPosition = anchor,
             routeStartDistanceM = frame.routeSliceDistanceM,
             routeTrimAheadM = DirectionsNavConfig.ROUTE_TRIM_BEHIND_MARKER_M,
+            travelMode = travelMode,
+            isDarkAppearance = isDarkAppearance,
+        )
+        DirectionsNavigationVehicleLayer.sync(
+            style = style,
+            context = context,
+            lat = anchor.latitude,
+            lng = anchor.longitude,
+            bearingDegrees = frame.bearingDegrees,
             travelMode = travelMode,
         )
     }

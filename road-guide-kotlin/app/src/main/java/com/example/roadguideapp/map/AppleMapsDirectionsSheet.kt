@@ -192,6 +192,7 @@ internal fun AppleMapsDirectionsPanel(
                 ) {
                     TravelModeChip(
                         selected = travelModeIndex == 0,
+                        enabled = !isNavigationActive,
                         icon = Icons.Outlined.DirectionsCar,
                         label = stringResource(R.string.apple_directions_mode_drive),
                         onClick = { onTravelModeChange(DirectionsTravelMode.Drive) },
@@ -200,6 +201,7 @@ internal fun AppleMapsDirectionsPanel(
                     )
                     TravelModeChip(
                         selected = travelModeIndex == 1,
+                        enabled = !isNavigationActive,
                         icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
                         label = stringResource(R.string.apple_directions_mode_walk),
                         onClick = { onTravelModeChange(DirectionsTravelMode.Walk) },
@@ -208,6 +210,7 @@ internal fun AppleMapsDirectionsPanel(
                     )
                     TravelModeChip(
                         selected = travelModeIndex == 2,
+                        enabled = !isNavigationActive,
                         icon = Icons.AutoMirrored.Outlined.DirectionsBike,
                         label = stringResource(R.string.apple_directions_mode_cycle),
                         onClick = { onTravelModeChange(DirectionsTravelMode.Bicycle) },
@@ -340,14 +343,23 @@ internal fun AppleMapsDirectionsPanel(
 @Composable
 private fun TravelModeChip(
     selected: Boolean,
+    enabled: Boolean,
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
     sheetTheme: AppleMapsSheetTheme,
     modifier: Modifier = Modifier,
 ) {
-    val bg = if (selected) sheetTheme.accent else sheetTheme.controlSegmentUnselected
-    val iconTint = if (selected) sheetTheme.onAccent else sheetTheme.primaryText
+    val bg = when {
+        selected -> sheetTheme.accent
+        !enabled -> sheetTheme.controlSegmentUnselected.copy(alpha = 0.55f)
+        else -> sheetTheme.controlSegmentUnselected
+    }
+    val iconTint = when {
+        selected -> sheetTheme.onAccent
+        !enabled -> sheetTheme.secondaryText.copy(alpha = 0.45f)
+        else -> sheetTheme.primaryText
+    }
     val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
@@ -356,6 +368,7 @@ private fun TravelModeChip(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
+                enabled = enabled,
                 role = Role.Button,
                 onClick = onClick,
             )

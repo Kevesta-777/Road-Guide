@@ -186,6 +186,7 @@ fun MapLibreMbTilesMap(
     var graphImportStatusMessage by remember { mutableStateOf("") }
     var graphImportProgressPercent by remember { mutableStateOf<Int?>(null) }
     var offlineGraphLoaded by remember { mutableStateOf(false) }
+    val preferOfflineGraph = controller.mapStyleMode != ResolvedMapStyle.Mode.Online
     var activeRouteResult by remember { mutableStateOf<DirectionsRouteResult?>(null) }
     var activeRouteSource by remember { mutableStateOf<DirectionsRouteSource?>(null) }
     var isRouteCalculating by remember { mutableStateOf(false) }
@@ -211,6 +212,14 @@ fun MapLibreMbTilesMap(
         controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
     }
 
+    val requestOfflineGraphImport: () -> Unit = {
+        if (!OfflineAuthStore.isSessionActive(context)) {
+            authDestination = AuthDestination.SignIn
+        } else {
+            showOfflineGraphImportAlert = true
+        }
+    }
+
     val onAddStopRequested: () -> Unit = {
         clearActiveRouteOverlay()
         sheetStack.popAddStopOverlays()
@@ -221,7 +230,7 @@ fun MapLibreMbTilesMap(
             }
             graphImportInProgress || graphRestoreInProgress -> Unit
             DirectionsRoutingService.hasSavedGraph(context) -> Unit
-            else -> showOfflineGraphImportAlert = true
+            else -> requestOfflineGraphImport()
         }
     }
 
@@ -257,6 +266,7 @@ fun MapLibreMbTilesMap(
                             navCameraHolder?.follow(displayFrame)
                         }
                         DirectionsNavigationFrameResolver.syncNavigationVisuals(
+                            context = context,
                             style = style,
                             route = routeLine,
                             frame = displayFrame,
@@ -264,6 +274,7 @@ fun MapLibreMbTilesMap(
                             stops = tripStops,
                             valhallaRoute = route,
                             travelMode = directions.travelMode,
+                            isDarkAppearance = isDarkAppearance,
                         )
                         controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
                     }
@@ -327,6 +338,7 @@ fun MapLibreMbTilesMap(
                     valhallaRoute = route,
                     revealProgress = 1f,
                     travelMode = directions.travelMode,
+                    isDarkAppearance = isDarkAppearance,
                 )
             }
         }
@@ -396,6 +408,7 @@ fun MapLibreMbTilesMap(
         val tripOrigin = directions.tripWaypoints.first()
         val tripStops = directions.tripWaypoints.drop(1)
         DirectionsNavigationFrameResolver.syncNavigationVisuals(
+            context = context,
             style = style,
             route = navGeometry,
             frame = displayFrame,
@@ -403,6 +416,7 @@ fun MapLibreMbTilesMap(
             stops = tripStops,
             valhallaRoute = route,
             travelMode = directions.travelMode,
+            isDarkAppearance = isDarkAppearance,
         )
         camera.enter(displayFrame)
         if (!navigationEngine.start()) {
@@ -476,6 +490,11 @@ fun MapLibreMbTilesMap(
         initialStatusRes: Int,
         import: suspend () -> Result<String>,
     ) {
+        if (!OfflineAuthStore.isSessionActive(context)) {
+            authDestination = AuthDestination.SignIn
+            graphImportInProgress = false
+            return
+        }
         coroutineScope.launch {
             graphImportInProgress = true
             graphImportProgressPercent = null
@@ -571,7 +590,26 @@ fun MapLibreMbTilesMap(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(authRevision, isLoggedIn, controller.mapStyleMode) {
+        if (!isLoggedIn) {
+            showOfflineGraphImportAlert = false
+            graphRestoreInProgress = false
+            graphImportStatusMessage = ""
+            graphImportProgressPercent = null
+            if (OfflineGraphEngine.isLoaded()) {
+                withContext(Dispatchers.IO) {
+                    OfflineGraphEngine.unloadFromMemory()
+                }
+                offlineGraphLoaded = false
+            }
+            return@LaunchedEffect
+        }
+        if (!preferOfflineGraph) {
+            graphRestoreInProgress = false
+            graphImportStatusMessage = ""
+            graphImportProgressPercent = null
+            return@LaunchedEffect
+        }
         if (!DirectionsRoutingService.hasSavedGraph(context)) return@LaunchedEffect
         if (OfflineGraphEngine.isLoaded()) {
             offlineGraphLoaded = true
@@ -702,6 +740,7 @@ fun MapLibreMbTilesMap(
         activeDirections?.tripWaypoints?.map { it.id },
         activeDirections?.travelMode,
         isNavigationActive,
+        isDarkAppearance,
     ) {
         if (isNavigationActive) return@LaunchedEffect
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
@@ -720,6 +759,7 @@ fun MapLibreMbTilesMap(
                 valhallaRoute = route,
                 revealProgress = 1f,
                 travelMode = directions.travelMode,
+                isDarkAppearance = isDarkAppearance,
             )
             controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
         }
@@ -753,12 +793,14 @@ fun MapLibreMbTilesMap(
         graphImportInProgress,
         graphRestoreInProgress,
         isNavigationActive,
+        controller.mapStyleMode,
     ) {
         if (isNavigationActive) return@LaunchedEffect
         if (graphImportInProgress || graphRestoreInProgress) return@LaunchedEffect
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
         val (map, style) = runtime
         val mv = mapViewRef.value
+        val darkAppearance = isDarkAppearance
         val directions = activeDirections
         if (directions == null) {
             controller.activeRouteGeometry = null
@@ -782,7 +824,9 @@ fun MapLibreMbTilesMap(
 
         delay(DirectionsRouteAnimation.FETCH_DEBOUNCE_MS)
         isRouteCalculating = true
-        isRouteRefining = DirectionsRoutingService.hasSavedGraph(context) &&
+        isRouteRefining = preferOfflineGraph &&
+            isLoggedIn &&
+            DirectionsRoutingService.hasSavedGraph(context) &&
             !OfflineGraphEngine.isLoaded()
 
         val waypoints = directions.tripWaypoints.map { it.latLng }
@@ -805,7 +849,9 @@ fun MapLibreMbTilesMap(
                 stops = directions.stops,
                 mode = directions.travelMode,
                 tripWaypoints = directions.tripWaypoints,
+                preferOfflineGraph = preferOfflineGraph,
             ) { progress ->
+                if (!preferOfflineGraph) return@planDirectionsRoute
                 coroutineScope.launch(Dispatchers.Main.immediate) {
                     if (!OfflineGraphEngine.isLoaded()) {
                         graphRestoreInProgress = true
@@ -838,6 +884,9 @@ fun MapLibreMbTilesMap(
         }
 
         val route = planOutcome.result
+            ?: valhallaRoute
+                ?.takeIf { it.geometry.size >= 2 }
+                ?.withMapDisplayGeometry()
         if (route == null || route.geometry.size < 2) {
             activeRouteResult = null
             activeRouteSource = null
@@ -862,7 +911,11 @@ fun MapLibreMbTilesMap(
         }
 
         activeRouteResult = route
-        activeRouteSource = planOutcome.source
+        activeRouteSource = when {
+            planOutcome.result != null -> planOutcome.source
+            valhallaRoute != null -> DirectionsRouteSource.Valhalla
+            else -> planOutcome.source
+        }
         offlineGraphLoaded = OfflineGraphEngine.isLoaded()
 
         val bottomPaddingPx = with(density) { bottomChromePaddingState.value.roundToPx() }
@@ -878,6 +931,7 @@ fun MapLibreMbTilesMap(
                 valhallaRoute = route,
                 revealProgress = progress,
                 travelMode = directions.travelMode,
+                isDarkAppearance = darkAppearance,
             )
             controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
         }
@@ -1338,7 +1392,7 @@ fun MapLibreMbTilesMap(
                                             if (!DirectionsRoutingService.hasSavedGraph(context) &&
                                                 !DirectionsRoutingService.canRoute(context)
                                             ) {
-                                                showOfflineGraphImportAlert = true
+                                                requestOfflineGraphImport()
                                             }
                                             routePlanTick++
                                         }
@@ -1506,6 +1560,7 @@ fun MapLibreMbTilesMap(
                                 tripLegCount = (sheet.tripWaypoints.size - 1).coerceAtLeast(0),
                                 travelMode = sheet.travelMode,
                                 onTravelModeChange = { mode ->
+                                    if (isNavigationActive) return@AppleMapsDirectionsPanel
                                     sheetStack.updateDirections(
                                         sheet.origin,
                                         sheet.stops,
@@ -1532,11 +1587,10 @@ fun MapLibreMbTilesMap(
                                 isRouteCalculating = isRouteCalculating,
                                 isRouteRefining = isRouteRefining,
                                 showOfflineRoutingImport =
+                                    isLoggedIn &&
                                     controller.mapStyleMode != ResolvedMapStyle.Mode.Online &&
                                     !DirectionsRoutingService.isOfflineRoutingConfigured(context),
-                                onImportGraphClick = {
-                                    showOfflineGraphImportAlert = true
-                                },
+                                onImportGraphClick = { requestOfflineGraphImport() },
                                 onNearbyShortcutClick = { shortcut ->
                                     controller.startNearbyCategoryBrowse(
                                         shortcut,
@@ -1790,14 +1844,13 @@ fun MapLibreMbTilesMap(
             )
         }
 
-        if (showOfflineGraphImportAlert) {
+        if (showOfflineGraphImportAlert && isLoggedIn) {
             OfflineGraphImportAlertDialog(
                 onDismiss = { showOfflineGraphImportAlert = false },
                 onImportFolderClick = {
                     graphImportInProgress = true
                     graphFolderPicker.launch(null)
                 },
-                
                 isImporting = graphImportInProgress,
             )
         }

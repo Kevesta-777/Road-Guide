@@ -32,19 +32,11 @@ internal object DirectionsRouteOverlay {
     /** Legacy single-source id (pre split line/points). */
     private const val LEGACY_SOURCE_ID = "roadguide_directions_route"
 
-    private const val ROUTE_BLUE = "#007AFF"
-    private const val CASING_WHITE = "#FFFFFF"
-    /** Sygic-style navigation route (vibrant fill + dark border). */
-    private const val ROUTE_NAV_BLUE = "#2B7CE8"
-    private const val ROUTE_NAV_BORDER = "#0F2238"
     /** ~80 km/h straight-line ETA when Valhalla is unavailable. */
     private const val ASSUMED_DRIVE_MPS = 22.22
 
     private val BICYCLE_DASH = arrayOf(1.8f, 1.35f)
     private val SOLID_DASH = arrayOf<Float>()
-
-    /** Extra width (dp) added around the route fill for the casing layer at every zoom. */
-    private const val ROUTE_CASING_GAP = 1.5f
 
     fun remove(style: Style) {
         runCatching { style.removeLayer(LABEL_LAYER) }
@@ -72,7 +64,10 @@ internal object DirectionsRouteOverlay {
         routeStartDistanceM: Double? = null,
         routeTrimAheadM: Double = 0.0,
         travelMode: DirectionsTravelMode = DirectionsTravelMode.Drive,
+        isDarkAppearance: Boolean = false,
     ) {
+        val palette = DirectionsRouteStyle.palette(isDarkAppearance)
+        val navigationMode = showRemainingRoute
         val ordered = listOf(origin) + stops
         val waypoints = ordered.map { it.latLng }
         if (waypoints.size < 2) {
@@ -169,17 +164,21 @@ internal object DirectionsRouteOverlay {
         val lineSrc = style.getSource(LINE_SOURCE) as? GeoJsonSource
         val ptSrc = style.getSource(POINTS_SOURCE) as? GeoJsonSource
         val dotSrc = style.getSource(DOT_SOURCE) as? GeoJsonSource
-        if (lineSrc != null && ptSrc != null) {
-            if (lineFeature != null) {
+        val needsLineLayer = travelMode != DirectionsTravelMode.Walk && lineFeature != null
+        val canUpdateInPlace = ptSrc != null &&
+            style.getLayer(LABEL_LAYER) != null &&
+            (!needsLineLayer || (lineSrc != null && style.getLayer(LINE_LAYER) != null))
+        if (canUpdateInPlace) {
+            if (lineSrc != null && lineFeature != null) {
                 lineSrc.setGeoJson(lineFeature)
             }
             ptSrc.setGeoJson(pointsCollection)
             if (dotSrc != null) {
                 dotSrc.setGeoJson(dotsCollection)
             } else if (travelMode == DirectionsTravelMode.Walk) {
-                ensureDotLayers(style, dotsCollection)
+                ensureDotLayers(style, palette, dotsCollection, navigationMode)
             }
-            applyRouteStyle(style, showRemainingRoute, travelMode)
+            applyRouteStyle(style, palette, navigationMode, travelMode)
             return
         }
 
@@ -193,19 +192,21 @@ internal object DirectionsRouteOverlay {
         style.addSource(pointsSource)
 
         val casingLayer = LineLayer(LINE_CASING_LAYER, LINE_SOURCE).withProperties(
-            *lineCasingProperties(showRemainingRoute, travelMode),
+            *lineCasingProperties(palette, navigationMode, travelMode),
         )
 
         val lineLayer = LineLayer(LINE_LAYER, LINE_SOURCE).withProperties(
-            *lineFillProperties(showRemainingRoute, travelMode),
+            *lineFillProperties(palette, navigationMode, travelMode),
         )
 
         val labelLayer = SymbolLayer(LABEL_LAYER, POINTS_SOURCE)
             .withProperties(
                 PropertyFactory.textField(Expression.get("label")),
-                PropertyFactory.textSize(11f),
-                PropertyFactory.textColor(CASING_WHITE),
-                PropertyFactory.textHaloColor(ROUTE_BLUE),
+                PropertyFactory.textSize(12f),
+                PropertyFactory.textColor(palette.legLabelText),
+                PropertyFactory.textHaloColor(
+                    DirectionsRouteStyle.previewFillColor(palette, travelMode),
+                ),
                 PropertyFactory.textHaloWidth(1.5f),
                 PropertyFactory.textHaloBlur(0.2f),
                 PropertyFactory.textAllowOverlap(true),
@@ -221,7 +222,7 @@ internal object DirectionsRouteOverlay {
             }
             addRouteLayer(style, labelLayer, lineLayerOrAnchor(style, anchorLayerId))
             if (travelMode == DirectionsTravelMode.Walk) {
-                ensureDotLayers(style, dotsCollection, aboveLayerId = LABEL_LAYER)
+                ensureDotLayers(style, palette, dotsCollection, navigationMode, aboveLayerId = LABEL_LAYER)
             }
         } catch (_: Exception) {
             runCatching {
@@ -231,11 +232,11 @@ internal object DirectionsRouteOverlay {
                 }
                 style.addLayer(labelLayer)
                 if (travelMode == DirectionsTravelMode.Walk) {
-                    ensureDotLayers(style, dotsCollection)
+                    ensureDotLayers(style, palette, dotsCollection, navigationMode)
                 }
             }
         }
-        applyRouteStyle(style, showRemainingRoute, travelMode)
+        applyRouteStyle(style, palette, navigationMode, travelMode)
     }
 
     private fun lineLayerOrAnchor(style: Style, anchorLayerId: String?): String? {
@@ -248,7 +249,9 @@ internal object DirectionsRouteOverlay {
 
     private fun ensureDotLayers(
         style: Style,
+        palette: DirectionsRoutePalette,
         dotsCollection: FeatureCollection,
+        navigationMode: Boolean,
         aboveLayerId: String? = null,
     ) {
         if (style.getSource(DOT_SOURCE) == null) {
@@ -258,14 +261,14 @@ internal object DirectionsRouteOverlay {
         }
         if (style.getLayer(DOT_LAYER) != null) return
         val dotCasing = CircleLayer(DOT_CASING_LAYER, DOT_SOURCE).withProperties(
-            PropertyFactory.circleColor(CASING_WHITE),
-            PropertyFactory.circleRadius(dotCasingRadiusExpression()),
+            PropertyFactory.circleColor(palette.walkDotCasing),
+            PropertyFactory.circleRadius(DirectionsRouteStyle.dotCasingRadiusExpression(navigationMode)),
             PropertyFactory.circleOpacity(0.98f),
             PropertyFactory.circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP),
         )
         val dotLayer = CircleLayer(DOT_LAYER, DOT_SOURCE).withProperties(
-            PropertyFactory.circleColor(ROUTE_BLUE),
-            PropertyFactory.circleRadius(dotRadiusExpression()),
+            PropertyFactory.circleColor(DirectionsRouteStyle.previewFillColor(palette, DirectionsTravelMode.Walk)),
+            PropertyFactory.circleRadius(DirectionsRouteStyle.dotRadiusExpression(navigationMode)),
             PropertyFactory.circleOpacity(1f),
             PropertyFactory.circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP),
         )
@@ -281,52 +284,60 @@ internal object DirectionsRouteOverlay {
         }
     }
 
-    private fun routeAnchorLayerId(style: Style): String? {
-        val candidates = listOf(
-            "transportation",
-            PmtilesOverviewStylePatch.overviewLayerId("transportation"),
-            AppMapStyle.BUILDING_3D_LAYER_ID,
-            AppMapStyle.BUILDING_LAYER_ID,
-        )
-        return candidates.firstOrNull { style.getLayer(it) != null }
-    }
+    /** Topmost base-map layer so the route draws above POI/symbol glyphs. */
+    private fun routeAnchorLayerId(style: Style): String? =
+        style.layers.asReversed().firstOrNull { !it.id.startsWith("roadguide_") }?.id
 
     private fun applyRouteStyle(
         style: Style,
+        palette: DirectionsRoutePalette,
         navigationMode: Boolean,
         travelMode: DirectionsTravelMode,
     ) {
         val useWalkDots = travelMode == DirectionsTravelMode.Walk
         val lineVisibility = if (useWalkDots) Property.NONE else Property.VISIBLE
         (style.getLayer(LINE_CASING_LAYER) as? LineLayer)?.setProperties(
-            *lineCasingProperties(navigationMode, travelMode),
+            *lineCasingProperties(palette, navigationMode, travelMode),
             PropertyFactory.visibility(lineVisibility),
         )
         (style.getLayer(LINE_LAYER) as? LineLayer)?.setProperties(
-            *lineFillProperties(navigationMode, travelMode),
+            *lineFillProperties(palette, navigationMode, travelMode),
             PropertyFactory.visibility(lineVisibility),
         )
         val dotVisibility = if (useWalkDots) Property.VISIBLE else Property.NONE
         (style.getLayer(DOT_CASING_LAYER) as? CircleLayer)?.setProperties(
             PropertyFactory.visibility(dotVisibility),
-            PropertyFactory.circleColor(CASING_WHITE),
-            PropertyFactory.circleRadius(dotCasingRadiusExpression()),
+            PropertyFactory.circleColor(palette.walkDotCasing),
+            PropertyFactory.circleRadius(DirectionsRouteStyle.dotCasingRadiusExpression(navigationMode)),
         )
         (style.getLayer(DOT_LAYER) as? CircleLayer)?.setProperties(
             PropertyFactory.visibility(dotVisibility),
-            PropertyFactory.circleColor(if (navigationMode) ROUTE_NAV_BLUE else ROUTE_BLUE),
-            PropertyFactory.circleRadius(dotRadiusExpression()),
+            PropertyFactory.circleColor(
+                DirectionsRouteStyle.routeFillColor(palette, navigationMode, DirectionsTravelMode.Walk),
+            ),
+            PropertyFactory.circleRadius(DirectionsRouteStyle.dotRadiusExpression(navigationMode)),
+        )
+        (style.getLayer(LABEL_LAYER) as? SymbolLayer)?.setProperties(
+            PropertyFactory.textColor(palette.legLabelText),
+            PropertyFactory.textHaloColor(DirectionsRouteStyle.previewFillColor(palette, travelMode)),
         )
     }
 
     private fun lineCasingProperties(
+        palette: DirectionsRoutePalette,
         navigationMode: Boolean,
         travelMode: DirectionsTravelMode,
     ): Array<org.maplibre.android.style.layers.PropertyValue<*>> {
         return arrayOf(
-            PropertyFactory.lineColor(if (navigationMode) ROUTE_NAV_BORDER else CASING_WHITE),
-            PropertyFactory.lineWidth(routeCasingWidthExpression()),
-            PropertyFactory.lineOpacity(if (navigationMode) 0.98f else 0.95f),
+            PropertyFactory.lineColor(
+                if (navigationMode) {
+                    DirectionsRouteStyle.navBorderColor(palette, travelMode)
+                } else {
+                    palette.previewCasing
+                },
+            ),
+            PropertyFactory.lineWidth(DirectionsRouteStyle.routeCasingWidthExpression(navigationMode)),
+            PropertyFactory.lineOpacity(if (navigationMode) 0.98f else 0.96f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             PropertyFactory.lineDasharray(lineDasharrayForMode(travelMode)),
@@ -334,13 +345,16 @@ internal object DirectionsRouteOverlay {
     }
 
     private fun lineFillProperties(
+        palette: DirectionsRoutePalette,
         navigationMode: Boolean,
         travelMode: DirectionsTravelMode,
     ): Array<org.maplibre.android.style.layers.PropertyValue<*>> {
         return arrayOf(
-            PropertyFactory.lineColor(if (navigationMode) ROUTE_NAV_BLUE else ROUTE_BLUE),
-            PropertyFactory.lineWidth(routeLineWidthExpression()),
-            PropertyFactory.lineOpacity(if (navigationMode) 0.88f else 1f),
+            PropertyFactory.lineColor(
+                DirectionsRouteStyle.routeFillColor(palette, navigationMode, travelMode),
+            ),
+            PropertyFactory.lineWidth(DirectionsRouteStyle.routeLineWidthExpression(navigationMode)),
+            PropertyFactory.lineOpacity(if (navigationMode) 0.92f else 1f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             PropertyFactory.lineDasharray(lineDasharrayForMode(travelMode)),
@@ -352,42 +366,6 @@ internal object DirectionsRouteOverlay {
         DirectionsTravelMode.Walk -> SOLID_DASH
         DirectionsTravelMode.Drive -> SOLID_DASH
     }
-
-    /** Walk dots: fill radius tracks [routeLineWidthExpression] for a consistent visual weight. */
-    private fun dotRadiusExpression(): Expression = Expression.interpolate(
-        Expression.linear(),
-        Expression.zoom(),
-        Expression.stop(14, 3.0f),
-        Expression.stop(16, 3.5f),
-        Expression.stop(18, 3.9f),
-        Expression.stop(20, 4.2f),
-        Expression.stop(22, 4.4f),
-    )
-
-    /** White halo around walk dots; offset matches [ROUTE_CASING_GAP] on line routes. */
-    private fun dotCasingRadiusExpression(): Expression = Expression.sum(
-        dotRadiusExpression(),
-        Expression.literal(ROUTE_CASING_GAP + 0.2f),
-    )
-
-    /**
-     * Single route fill width for preview, animation, and navigation (drive / bike).
-     * Slightly thicker than the previous preview-only scale for readability.
-     */
-    private fun routeLineWidthExpression(): Expression = Expression.interpolate(
-        Expression.linear(),
-        Expression.zoom(),
-        Expression.stop(14, 2.0f),
-        Expression.stop(16, 3.0f),
-        Expression.stop(18, 4.5f),
-        Expression.stop(20, 5.2f),
-        Expression.stop(22, 5.5f),
-    )
-
-    private fun routeCasingWidthExpression(): Expression = Expression.sum(
-        routeLineWidthExpression(),
-        Expression.literal(ROUTE_CASING_GAP),
-    )
 
     private fun addRouteLayer(style: Style, layer: LineLayer, aboveLayerId: String?) {
         if (aboveLayerId != null && style.getLayer(aboveLayerId) != null) {

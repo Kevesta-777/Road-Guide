@@ -30,6 +30,14 @@ internal object OfflineGraphEngine {
     fun hasSavedGraph(context: Context): Boolean =
         OfflineGraphStorage.getActiveGraphPath(context) != null
 
+    /** Releases the in-memory GraphHopper instance; saved graph files on disk are kept. */
+    fun unloadFromMemory() {
+        if (!isLoaded()) return
+        OfflineGraphThreadRunner.runBlocking("unload-graph") {
+            OfflineGraphRouter.shutdownBlocking()
+        }
+    }
+
     suspend fun ensureReady(
         context: Context,
         onProgress: (OfflineGraphProgress) -> Unit = {},

@@ -2,6 +2,7 @@ package com.example.roadguideapp.map
 
 import android.content.Context
 import android.util.Log
+import com.example.roadguideapp.auth.OfflineAuthStore
 import com.example.roadguideapp.offlinegraph.OfflineGraphEngine
 import com.example.roadguideapp.offlinegraph.OfflineGraphProgress
 import com.example.roadguideapp.offlinegraph.OfflineGraphRouter
@@ -36,12 +37,16 @@ internal object DirectionsRoutingService {
 
     private const val TAG = "DirectionsRoutingService"
 
+    private fun mayUseOfflineGraph(context: Context): Boolean =
+        OfflineAuthStore.isSessionActive(context)
+
     suspend fun planDirectionsRoute(
         context: Context,
         origin: MapPlaceDetail,
         stops: List<MapPlaceDetail>,
         mode: DirectionsTravelMode,
         tripWaypoints: List<MapPlaceDetail> = emptyList(),
+        preferOfflineGraph: Boolean = true,
         onLoadProgress: (OfflineGraphProgress) -> Unit = {},
     ): DirectionsPlanOutcome {
         val useFullTrip = tripWaypoints.size >= 2
@@ -49,14 +54,20 @@ internal object DirectionsRoutingService {
             return DirectionsPlanOutcome(stops, null, DirectionsRouteSource.Unavailable)
         }
 
-        if (hasSavedGraph(context) && !OfflineGraphRouter.isReady()) {
+        if (preferOfflineGraph &&
+            mayUseOfflineGraph(context) &&
+            hasSavedGraph(context) &&
+            !OfflineGraphRouter.isReady()
+        ) {
             val loaded = awaitOfflineGraphReady(context, onLoadProgress)
             if (!loaded) {
                 Log.w(TAG, "Saved graph could not be loaded; trying online/preview fallback")
             }
         }
 
-        val graphReady = OfflineGraphRouter.isReady()
+        val graphReady = preferOfflineGraph &&
+            mayUseOfflineGraph(context) &&
+            OfflineGraphRouter.isReady()
         Log.d(
             TAG,
             "planDirectionsRoute graphReady=$graphReady hasSaved=${hasSavedGraph(context)} " +
@@ -89,19 +100,16 @@ internal object DirectionsRoutingService {
             Log.w(TAG, "Offline GraphHopper route failed for ${waypoints.size} waypoints; trying fallbacks")
         }
 
-        if (ValhallaReachability.probeIfNeeded()) {
-            ValhallaRouteClient.fetchRoute(waypoints, mode)?.let { route ->
-                if (route.geometry.size >= 2) {
-                    return DirectionsPlanOutcome(
-                        optimizedStops = if (useFullTrip) stops else optimizedStops,
-                        result = route.withMapDisplayGeometry(),
-                        source = DirectionsRouteSource.Valhalla,
-                    )
-                }
-            }
+        val valhallaRoute = fetchValhallaRoute(waypoints, mode, preferOfflineGraph)
+        if (valhallaRoute != null) {
+            return DirectionsPlanOutcome(
+                optimizedStops = if (useFullTrip) stops else optimizedStops,
+                result = valhallaRoute,
+                source = DirectionsRouteSource.Valhalla,
+            )
         }
 
-        if (hasSavedGraph(context)) {
+        if (preferOfflineGraph && mayUseOfflineGraph(context) && hasSavedGraph(context)) {
             Log.e(
                 TAG,
                 "Offline graph is saved but routing failed (graphReady=$graphReady, " +
@@ -114,12 +122,30 @@ internal object DirectionsRoutingService {
             )
         }
 
-        if (OfflineGraphEngine.isImportInProgress() || OfflineGraphEngine.isLoadInProgress()) {
-            Log.i(TAG, "Graph import/load in progress; skipping preview route line")
-            return DirectionsPlanOutcome(
+        if (preferOfflineGraph &&
+            (OfflineGraphEngine.isImportInProgress() || OfflineGraphEngine.isLoadInProgress())
+        ) {
+            Log.i(TAG, "Graph import/load in progress; trying Valhalla/preview fallback")
+            fetchValhallaRoute(waypoints, mode, preferOfflineGraph = false)?.let { route ->
+                return DirectionsPlanOutcome(
+                    optimizedStops = if (useFullTrip) stops else optimizedStops,
+                    result = route,
+                    source = DirectionsRouteSource.Valhalla,
+                )
+            }
+            return previewPlanOutcome(
                 optimizedStops = if (useFullTrip) stops else optimizedStops,
-                result = null,
-                source = DirectionsRouteSource.Unavailable,
+                waypoints = waypoints,
+                mode = mode,
+            )
+        }
+
+        if (!preferOfflineGraph) {
+            Log.w(TAG, "Valhalla route unavailable in online map mode; using straight-line preview")
+            return previewPlanOutcome(
+                optimizedStops = if (useFullTrip) stops else optimizedStops,
+                waypoints = waypoints,
+                mode = mode,
             )
         }
 
@@ -132,9 +158,91 @@ internal object DirectionsRoutingService {
             )
         }
 
+        return previewPlanOutcome(
+            optimizedStops = if (useFullTrip) stops else optimizedStops,
+            waypoints = waypoints,
+            mode = mode,
+        )
+    }
+
+    suspend fun planRoute(
+        context: Context,
+        waypoints: List<LatLng>,
+        mode: DirectionsTravelMode,
+        preferOfflineGraph: Boolean = true,
+        onLoadProgress: (OfflineGraphProgress) -> Unit = {},
+    ): DirectionsRoutingOutcome {
+        if (waypoints.size < 2) {
+            return DirectionsRoutingOutcome(null, DirectionsRouteSource.Unavailable)
+        }
+
+        if (preferOfflineGraph &&
+            mayUseOfflineGraph(context) &&
+            hasSavedGraph(context) &&
+            !OfflineGraphRouter.isReady()
+        ) {
+            awaitOfflineGraphReady(context, onLoadProgress)
+        }
+
+        if (preferOfflineGraph && mayUseOfflineGraph(context) && OfflineGraphRouter.isReady()) {
+            routeOffline(waypoints, mode)?.let { route ->
+                return DirectionsRoutingOutcome(route.withMapDisplayGeometry(), DirectionsRouteSource.OfflineGraph)
+            }
+        }
+
+        fetchValhallaRoute(waypoints, mode, preferOfflineGraph)?.let { route ->
+            return DirectionsRoutingOutcome(route, DirectionsRouteSource.Valhalla)
+        }
+
+        if (!preferOfflineGraph) {
+            val preview = buildPreviewRoute(waypoints, mode).withMapDisplayGeometry()
+            return DirectionsRoutingOutcome(
+                preview.takeIf { it.geometry.size >= 2 },
+                if (preview.geometry.size >= 2) {
+                    DirectionsRouteSource.Preview
+                } else {
+                    DirectionsRouteSource.Unavailable
+                },
+            )
+        }
+
+        return DirectionsRoutingOutcome(null, DirectionsRouteSource.Unavailable)
+    }
+
+    /**
+     * Online map mode always calls Valhalla (no cached /status gate). Offline map mode probes first.
+     */
+    private suspend fun fetchValhallaRoute(
+        waypoints: List<LatLng>,
+        mode: DirectionsTravelMode,
+        preferOfflineGraph: Boolean,
+    ): DirectionsRouteResult? {
+        val tryValhalla = !preferOfflineGraph || ValhallaReachability.probeIfNeeded()
+        if (!tryValhalla) {
+            Log.w(TAG, "Skipping Valhalla (preferOfflineGraph=$preferOfflineGraph, reachable=${ValhallaReachability.isReachable()})")
+            return null
+        }
+        val route = ValhallaRouteClient.fetchRoute(waypoints, mode)
+        if (route == null) {
+            Log.w(TAG, "Valhalla /route returned no route for ${waypoints.size} waypoints")
+            return null
+        }
+        if (route.geometry.size < 2) {
+            Log.w(TAG, "Valhalla route geometry too short (${route.geometry.size} points)")
+            return null
+        }
+        Log.i(TAG, "Valhalla route OK (${route.geometry.size} points)")
+        return route.withMapDisplayGeometry()
+    }
+
+    private fun previewPlanOutcome(
+        optimizedStops: List<MapPlaceDetail>,
+        waypoints: List<LatLng>,
+        mode: DirectionsTravelMode,
+    ): DirectionsPlanOutcome {
         val preview = buildPreviewRoute(waypoints, mode).withMapDisplayGeometry()
         return DirectionsPlanOutcome(
-            optimizedStops = if (useFullTrip) stops else optimizedStops,
+            optimizedStops = optimizedStops,
             result = preview,
             source = if (preview.geometry.size >= 2) {
                 DirectionsRouteSource.Preview
@@ -144,43 +252,19 @@ internal object DirectionsRoutingService {
         )
     }
 
-    suspend fun planRoute(
-        context: Context,
-        waypoints: List<LatLng>,
-        mode: DirectionsTravelMode,
-        onLoadProgress: (OfflineGraphProgress) -> Unit = {},
-    ): DirectionsRoutingOutcome {
-        if (waypoints.size < 2) {
-            return DirectionsRoutingOutcome(null, DirectionsRouteSource.Unavailable)
-        }
-
-        if (hasSavedGraph(context) && !OfflineGraphRouter.isReady()) {
-            awaitOfflineGraphReady(context, onLoadProgress)
-        }
-
-        if (OfflineGraphRouter.isReady()) {
-            routeOffline(waypoints, mode)?.let { route ->
-                return DirectionsRoutingOutcome(route.withMapDisplayGeometry(), DirectionsRouteSource.OfflineGraph)
-            }
-        }
-
-        if (!hasSavedGraph(context) && ValhallaReachability.probeIfNeeded()) {
-            ValhallaRouteClient.fetchRoute(waypoints, mode)?.let { route ->
-                return DirectionsRoutingOutcome(route.withMapDisplayGeometry(), DirectionsRouteSource.Valhalla)
-            }
-        }
-
-        return DirectionsRoutingOutcome(null, DirectionsRouteSource.Unavailable)
-    }
-
     fun hasSavedGraph(context: Context): Boolean = OfflineGraphEngine.hasSavedGraph(context)
 
-    /** True when an imported offline graph exists or is already loaded in memory. */
+    /** True when a signed-in user has an imported offline graph available to load or use. */
     fun isOfflineRoutingConfigured(context: Context): Boolean =
-        hasSavedGraph(context) || OfflineGraphEngine.isLoaded()
+        mayUseOfflineGraph(context) &&
+            (hasSavedGraph(context) || OfflineGraphEngine.isLoaded())
 
     suspend fun canRoute(context: Context): Boolean {
-        if (OfflineGraphEngine.isLoaded() || hasSavedGraph(context)) return true
+        if (mayUseOfflineGraph(context) &&
+            (OfflineGraphEngine.isLoaded() || hasSavedGraph(context))
+        ) {
+            return true
+        }
         return ValhallaReachability.probeIfNeeded() && ValhallaReachability.isReachable()
     }
 
@@ -188,6 +272,7 @@ internal object DirectionsRoutingService {
         context: Context,
         onProgress: (OfflineGraphProgress) -> Unit = {},
     ): Boolean {
+        if (!mayUseOfflineGraph(context)) return false
         if (OfflineGraphEngine.isLoaded()) return true
         if (!hasSavedGraph(context)) return false
         while (OfflineGraphEngine.isLoadInProgress()) {
