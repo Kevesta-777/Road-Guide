@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -1774,9 +1773,10 @@ fun MapLibreMbTilesMap(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.TravelExplore,
+                        painter = painterResource(R.drawable.ic_look_around),
                         contentDescription = stringResource(R.string.apple_look_around),
                         tint = sheetTheme.mapControlIcon,
+                        modifier = Modifier.size(26.dp),
                     )
                 }
             }
