@@ -41,13 +41,7 @@ internal object MapStyleRuntime {
             (layer as? FillLayer)?.setProperties(PropertyFactory.fillColor(p.park))
         }
 
-        forEachOverviewAndDetail(style, "transportation-casing") { layer ->
-            (layer as? LineLayer)?.setProperties(PropertyFactory.lineColor(p.roadCasing))
-        }
-
-        forEachOverviewAndDetail(style, "transportation") { layer ->
-            (layer as? LineLayer)?.setProperties(PropertyFactory.lineColor(p.road))
-        }
+        MapTransportationStyle.applyRoadPalette(style, p)
 
         (style.getLayer(AppMapStyle.BUILDING_LAYER_ID) as? FillLayer)?.setProperties(
             PropertyFactory.fillColor(p.buildingFill),
@@ -81,8 +75,8 @@ internal object MapStyleRuntime {
     /**
      * Shows Headway `building_3d` when 3D mode is on and zoom >= 13.
      *
-     * On the emulator GLES stack, extrusion while the map bearing changes can SIGSEGV; there we
-     * only show extrusion when north-up and the camera is idle.
+     * On the emulator GLES stack, updating fill-extrusion while bearing changes can SIGSEGV; hide
+     * extrusion only while the camera is moving, then restore it at any bearing once idle.
      */
     fun syncBuilding3dVisibility(
         map: MapLibreMap,
@@ -98,10 +92,8 @@ internal object MapStyleRuntime {
 
         val zoomAllows3d = map.cameraPosition.zoom >= (AppMapStyle.BUILDING_3D_MIN_ZOOM - 0.01)
         var show3dBuildings = userWants3d && zoomAllows3d
-        if (MapRenderSupport.isLikelyAndroidEmulator() && !activeNavigation) {
-            show3dBuildings = show3dBuildings &&
-                isBearingNearNorth(map.cameraPosition.bearing) &&
-                !suppressForCameraMotion
+        if (MapRenderSupport.shouldSuppressExtrusionDuringCameraMotion() && !activeNavigation) {
+            show3dBuildings = show3dBuildings && !suppressForCameraMotion
         }
         BuildingExtrusion.setBuilding3dVisible(style, visible = show3dBuildings)
     }
@@ -158,8 +150,4 @@ internal object MapStyleRuntime {
         }
     }
 
-    private fun isBearingNearNorth(bearingDegrees: Double): Boolean {
-        val normalized = ((bearingDegrees % 360.0) + 360.0) % 360.0
-        return normalized <= 2.0 || normalized >= 358.0
-    }
 }

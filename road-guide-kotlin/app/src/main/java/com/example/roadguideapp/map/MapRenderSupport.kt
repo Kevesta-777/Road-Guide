@@ -20,10 +20,12 @@ internal object MapRenderSupport {
     }
 
     /**
-     * MapLibre fill-extrusion + bearing changes can SIGSEGV on the emulator GLES translator.
-     * Keep 3D tilt but disable finger-rotation there; compass reset still runs programmatically.
+     * Hide fill-extrusion while the camera bearing/tilt is animating (emulator GLES SIGSEGV guard).
+     * Finger rotation and compass are allowed; extrusion is restored on [MapLibreMap] camera idle.
      */
-    fun allowsFingerRotationIn3d(): Boolean = !isLikelyAndroidEmulator()
+    fun shouldSuppressExtrusionDuringCameraMotion(): Boolean = isLikelyAndroidEmulator()
+
+    fun allowsFingerRotationIn3d(): Boolean = true
 
     fun preferTextureViewRendering(): Boolean = isLikelyAndroidEmulator()
 
@@ -38,7 +40,8 @@ internal object MapRenderSupport {
         if (model.contains("Android SDK built for x86", ignoreCase = true)) return true
         if (model.contains("sdk_gphone", ignoreCase = true)) return true
         val product = Build.PRODUCT
-        if (product.contains("sdk", ignoreCase = true)) return true
+        if (product.equals("sdk", ignoreCase = true)) return true
+        if (product.startsWith("sdk_gphone", ignoreCase = true)) return true
         if (product.contains("emulator", ignoreCase = true)) return true
         val device = Build.DEVICE
         if (device.contains("generic", ignoreCase = true)) return true

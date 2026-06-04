@@ -139,17 +139,18 @@ internal object DirectionsRouteStyle {
     )
 
     private fun darkPalette(): DirectionsRoutePalette = DirectionsRoutePalette(
-        driveFill = "#5EB4FF",
-        walkFill = "#E8A864",
-        bikeFill = "#5CD68A",
+        driveFill = "#2190ff",
+        // Brighter amber/orange — previous fills sat near dark road gray (#7A808C).
+        walkFill = "#FF9F0A",
+        bikeFill = "#00F55A",
         previewCasing = "#1C1C1E",
         legLabelText = "#FFFFFF",
         walkDotCasing = "#1C1C1E",
-        navDriveFill = "#7EC8FF",
-        navDriveBorder = "#0A1E33",
-        navWalkFill = "#F0BC72",
-        navWalkBorder = "#3D2810",
-        navBikeFill = "#6EE09A",
-        navBikeBorder = "#0F3D22",
+        navDriveFill = "#2190ff",
+        navDriveBorder = "#041C3A",
+        navWalkFill = "#FFB84D",
+        navWalkBorder = "#5C3A08",
+        navBikeFill = "#3DFF7F",
+        navBikeBorder = "#004D22",
     )
 }

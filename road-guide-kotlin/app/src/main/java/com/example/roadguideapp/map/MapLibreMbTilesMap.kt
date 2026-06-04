@@ -156,15 +156,18 @@ fun MapLibreMbTilesMap(
     }
 
     var appearanceClockTick by remember { mutableIntStateOf(0) }
+    var appearanceManuallyOverridden by remember { mutableStateOf(false) }
     var isDarkAppearance by remember {
         mutableStateOf(MapTimeOfDay.fromSystemLocalClock().isDarkAppearance())
     }
-    val timeOfDay = remember(isDarkAppearance, appearanceClockTick) {
+    val timeOfDay = remember(appearanceManuallyOverridden, isDarkAppearance, appearanceClockTick) {
         resolveMapTimeOfDay(
             clock = MapTimeOfDay.fromSystemLocalClock(),
+            appearanceManuallyOverridden = appearanceManuallyOverridden,
             isDarkAppearance = isDarkAppearance,
         )
     }
+    val effectiveDarkAppearance = timeOfDay.isDarkAppearance()
     val sheetTheme = remember(timeOfDay) { appleMapsSheetTheme(timeOfDay) }
 
     var is3d by remember { mutableStateOf(false) }
@@ -274,7 +277,7 @@ fun MapLibreMbTilesMap(
                             stops = tripStops,
                             valhallaRoute = route,
                             travelMode = directions.travelMode,
-                            isDarkAppearance = isDarkAppearance,
+                            isDarkAppearance = effectiveDarkAppearance,
                         )
                         controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
                     }
@@ -338,7 +341,7 @@ fun MapLibreMbTilesMap(
                     valhallaRoute = route,
                     revealProgress = 1f,
                     travelMode = directions.travelMode,
-                    isDarkAppearance = isDarkAppearance,
+                    isDarkAppearance = effectiveDarkAppearance,
                 )
             }
         }
@@ -416,7 +419,7 @@ fun MapLibreMbTilesMap(
             stops = tripStops,
             valhallaRoute = route,
             travelMode = directions.travelMode,
-            isDarkAppearance = isDarkAppearance,
+            isDarkAppearance = effectiveDarkAppearance,
         )
         camera.enter(displayFrame)
         if (!navigationEngine.start()) {
@@ -683,9 +686,8 @@ fun MapLibreMbTilesMap(
         val mapView = mapViewRef.value
         val applyStyle = {
             map.setStyle(Style.Builder().fromJson(json)) { style ->
-                val mode = resolveMapTimeOfDay(isDarkAppearance = isDarkAppearance)
                 runCatching { BuildingExtrusion.prepareStyle(style) }
-                MapStyleRuntime.applyTimeOfDay(style, mode)
+                MapStyleRuntime.applyTimeOfDay(style, timeOfDay)
                 fitBounds?.let { bounds ->
                     runCatching { map.setLatLngBoundsForCameraTarget(bounds) }
                 }
@@ -740,7 +742,7 @@ fun MapLibreMbTilesMap(
         activeDirections?.tripWaypoints?.map { it.id },
         activeDirections?.travelMode,
         isNavigationActive,
-        isDarkAppearance,
+        effectiveDarkAppearance,
     ) {
         if (isNavigationActive) return@LaunchedEffect
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
@@ -759,7 +761,7 @@ fun MapLibreMbTilesMap(
                 valhallaRoute = route,
                 revealProgress = 1f,
                 travelMode = directions.travelMode,
-                isDarkAppearance = isDarkAppearance,
+                isDarkAppearance = effectiveDarkAppearance,
             )
             controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
         }
@@ -800,7 +802,7 @@ fun MapLibreMbTilesMap(
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
         val (map, style) = runtime
         val mv = mapViewRef.value
-        val darkAppearance = isDarkAppearance
+        val darkAppearance = effectiveDarkAppearance
         val directions = activeDirections
         if (directions == null) {
             controller.activeRouteGeometry = null
@@ -1694,12 +1696,15 @@ fun MapLibreMbTilesMap(
         if (showTopRightChrome) {
             AppleMapsTopRightChrome(
                 sheetTheme = sheetTheme,
-                isDarkAppearance = isDarkAppearance,
+                isDarkAppearance = effectiveDarkAppearance,
                 is3d = is3d,
                 mapBearingDegrees = mapBearingDegrees,
                 onChooseMapClick = { showChooseMapSheet = true },
                 onMyLocationClick = { showMyLocationSheet = true },
-                onToggleAppearanceClick = { isDarkAppearance = !isDarkAppearance },
+                onToggleAppearanceClick = {
+                    appearanceManuallyOverridden = true
+                    isDarkAppearance = !effectiveDarkAppearance
+                },
                 onToggle3dClick = { is3d = !is3d },
                 onCompassClick = {
                     controller.mapRuntime?.let { (map, style) ->
@@ -1716,6 +1721,19 @@ fun MapLibreMbTilesMap(
                                     .build(),
                             ),
                         )
+                    }
+                },
+                onCompassBearingDragEnd = {
+                    controller.mapRuntime?.let { (map, style) ->
+                        if (is3d) {
+                            MapStyleRuntime.syncBuilding3dVisibility(
+                                map = map,
+                                style = style,
+                                userWants3d = true,
+                                suppressForCameraMotion = false,
+                                activeNavigation = isNavigationActive,
+                            )
+                        }
                     }
                 },
                 modifier = Modifier
