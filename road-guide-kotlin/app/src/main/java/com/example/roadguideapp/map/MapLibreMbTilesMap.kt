@@ -648,6 +648,7 @@ fun MapLibreMbTilesMap(
     }
 
     MapStyleLoadEffect(context, controller)
+    MapTileserverRecoveryEffect(context, controller, lifecycle)
 
     LaunchedEffect(
         controller.mapLibreMap,

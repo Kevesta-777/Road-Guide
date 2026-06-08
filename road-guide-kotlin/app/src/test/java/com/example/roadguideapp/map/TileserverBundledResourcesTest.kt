@@ -55,6 +55,41 @@ class TileserverBundledResourcesTest {
     }
 
     @Test
+    fun isValidSpriteDirectory_rejectsOneXJsonCopiedToRetinaPair() {
+        val root = createTempDir("sprites-retina-mismatch").apply {
+            deleteOnExit()
+        }
+        val spriteJson = """{"dot_10":{"width":1,"height":1,"x":0,"y":0}}"""
+        File(root, "sprites.json").writeText(spriteJson)
+        File(root, "sprites.png").writeBytes(
+            byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A),
+        )
+        File(root, "sprites@2x.json").writeText(spriteJson)
+        File(root, "sprites@2x.png").writeBytes(
+            byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01),
+        )
+        assertTrue(TileserverBundledResources.isValidSpriteDirectory(root))
+        assertFalse(File(root, "sprites@2x.json").exists())
+        assertFalse(File(root, "sprites@2x.png").exists())
+    }
+
+    @Test
+    fun isValidSpriteDirectory_acceptsMatchingRetinaPair() {
+        val root = createTempDir("sprites-retina-valid").apply {
+            deleteOnExit()
+        }
+        File(root, "sprites.json").writeText("""{"dot_10":{"width":1,"height":1,"x":0,"y":0}}""")
+        File(root, "sprites.png").writeBytes(
+            byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A),
+        )
+        File(root, "sprites@2x.json").writeText("""{"dot_10":{"width":2,"height":2,"x":0,"y":0}}""")
+        File(root, "sprites@2x.png").writeBytes(
+            byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01),
+        )
+        assertTrue(TileserverBundledResources.isValidSpriteDirectory(root))
+    }
+
+    @Test
     fun isValidGlyphTree_requiresRobotoStacks() {
         val fontDir = createTempDir("glyphs").apply {
             deleteOnExit()

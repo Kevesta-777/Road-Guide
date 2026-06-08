@@ -45,6 +45,23 @@ internal object TileserverReachability {
         return reachable
     }
 
+    /**
+     * Re-checks tileserver availability (e.g. after connectivity recovery or app resume).
+     * Updates the cached result used by [probeIfNeeded] and sprite interceptors.
+     */
+    @Synchronized
+    fun reprobe(tileserverOrigin: String): Boolean {
+        val origin = tileserverOrigin.trim().trimEnd('/')
+        reachable = if (origin.isEmpty()) {
+            false
+        } else {
+            probeOrigin(origin)
+        }
+        probed = true
+        Log.i(TAG, "Tileserver reprobe: reachable=$reachable origin=$origin")
+        return reachable
+    }
+
     /** For unit tests only. */
     internal fun resetForTests() {
         probed = false
