@@ -30,3 +30,6 @@
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.zxing.** { *; }
 -keep class com.example.roadguideapp.auth.** { *; }
+-keep class com.example.roadguideapp.goldhunt.database.** { *; }
+-keep class androidx.room.** { *; }
+-dontwarn androidx.room.paging.**

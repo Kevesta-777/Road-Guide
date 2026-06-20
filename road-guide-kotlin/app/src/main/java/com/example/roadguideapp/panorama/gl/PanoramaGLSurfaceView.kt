@@ -16,7 +16,12 @@ class PanoramaGLSurfaceView @JvmOverloads constructor(
 
     private var previousX = 0f
     private var previousY = 0f
+    private var downX = 0f
+    private var downY = 0f
+    private var dragDistanceSq = 0f
     private var isDragging = false
+
+    var onPanoramaTap: ((screenX: Float, screenY: Float) -> Unit)? = null
 
     private val scaleDetector = ScaleGestureDetector(
         context,
@@ -53,6 +58,9 @@ class PanoramaGLSurfaceView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 previousX = event.x
                 previousY = event.y
+                downX = event.x
+                downY = event.y
+                dragDistanceSq = 0f
                 isDragging = true
             }
 
@@ -62,6 +70,9 @@ class PanoramaGLSurfaceView @JvmOverloads constructor(
                 }
                 val deltaX = event.x - previousX
                 val deltaY = event.y - previousY
+                val dragDx = event.x - downX
+                val dragDy = event.y - downY
+                dragDistanceSq = dragDx * dragDx + dragDy * dragDy
                 if (abs(deltaX) > 0.5f || abs(deltaY) > 0.5f) {
                     panoramaRenderer.addLookFromDrag(deltaX, deltaY)
                     previousX = event.x
@@ -71,9 +82,20 @@ class PanoramaGLSurfaceView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (
+                    isDragging &&
+                    event.pointerCount <= 1 &&
+                    dragDistanceSq <= TAP_SLOP_PX * TAP_SLOP_PX
+                ) {
+                    onPanoramaTap?.invoke(event.x, event.y)
+                }
                 isDragging = false
             }
         }
         return true
+    }
+
+    companion object {
+        private const val TAP_SLOP_PX = 12f
     }
 }

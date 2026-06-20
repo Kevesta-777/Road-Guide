@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.roadguideapp.R
-
 @Composable
 internal fun AppleMapsPersistentSheetContent(
     sheetTheme: AppleMapsSheetTheme,
@@ -79,6 +78,7 @@ internal fun AppleMapsPersistentSheetContent(
     searchError: String? = null,
     onSearchResultSelected: (PeliasSearchResult) -> Unit = {},
     onNearbyShortcutClick: (AppleNearbyShortcut) -> Unit = {},
+    searchEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -86,8 +86,8 @@ internal fun AppleMapsPersistentSheetContent(
     val stickyHeaderHeight = with(density) { stickyHeaderHeightPx.toDp() }
     val searchFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(isSearchActive) {
-        if (isSearchActive) {
+    LaunchedEffect(searchEnabled, isSearchActive) {
+        if (searchEnabled && isSearchActive) {
             searchFocusRequester.requestFocus()
         }
     }
@@ -97,7 +97,7 @@ internal fun AppleMapsPersistentSheetContent(
             .fillMaxSize()
             .background(sheetTheme.sheetSurface),
     ) {
-        if (isSearchActive) {
+        if (searchEnabled && isSearchActive) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -152,7 +152,8 @@ internal fun AppleMapsPersistentSheetContent(
             AppleMapsSheetSearchHeader(
                 sheetTheme = sheetTheme,
                 searchQuery = searchQuery,
-                isSearchActive = isSearchActive,
+                isSearchActive = searchEnabled && isSearchActive,
+                searchEnabled = searchEnabled,
                 searchFocusRequester = searchFocusRequester,
                 onSearchQueryChange = onSearchQueryChange,
                 onSearchFocus = onSearchFocus,
@@ -267,6 +268,7 @@ private fun AppleMapsSheetSearchHeader(
     sheetTheme: AppleMapsSheetTheme,
     searchQuery: String,
     isSearchActive: Boolean,
+    searchEnabled: Boolean = true,
     searchFocusRequester: FocusRequester,
     onSearchQueryChange: (String) -> Unit,
     onSearchFocus: () -> Unit,
@@ -287,12 +289,13 @@ private fun AppleMapsSheetSearchHeader(
     ) {
         AppleMapsSearchField(
             sheetTheme = sheetTheme,
-            searchQuery = searchQuery,
+            searchQuery = if (searchEnabled) searchQuery else "",
             focusRequester = searchFocusRequester,
-            onSearchQueryChange = onSearchQueryChange,
-            onSearchFocus = onSearchFocus,
-            onSearchSubmit = onSearchSubmit,
-            onSearchClear = onSearchClear,
+            onSearchQueryChange = { if (searchEnabled) onSearchQueryChange(it) },
+            onSearchFocus = { if (searchEnabled) onSearchFocus() },
+            onSearchSubmit = { if (searchEnabled) onSearchSubmit(it) },
+            onSearchClear = { if (searchEnabled) onSearchClear() },
+            readOnly = !searchEnabled,
             modifier = Modifier.weight(1f),
         )
         if (isSearchActive) {
@@ -347,18 +350,26 @@ private fun AppleMapsSearchField(
     onSearchFocus: () -> Unit,
     onSearchSubmit: (String) -> Unit,
     onSearchClear: () -> Unit,
+    readOnly: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     SearchTextField(
         value = searchQuery,
         onValueChange = onSearchQueryChange,
-        placeholder = stringResource(R.string.apple_search_placeholder),
+        placeholder = stringResource(
+            if (readOnly) {
+                R.string.gold_hunt_search_disabled_placeholder
+            } else {
+                R.string.apple_search_placeholder
+            },
+        ),
         sheetTheme = sheetTheme,
         modifier = modifier.appleMapsSheetInteractiveBlock(),
         focusRequester = focusRequester,
         onFocus = onSearchFocus,
         onSubmit = { onSearchSubmit(searchQuery) },
         onClear = onSearchClear,
-        showClearWhenNonEmpty = true,
+        readOnly = readOnly,
+        showClearWhenNonEmpty = !readOnly,
     )
 }

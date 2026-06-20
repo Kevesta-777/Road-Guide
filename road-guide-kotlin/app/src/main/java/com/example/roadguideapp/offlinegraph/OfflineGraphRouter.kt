@@ -40,6 +40,9 @@ internal object OfflineGraphRouter {
     @Volatile
     private var hopper: GraphHopper? = null
 
+    @Volatile
+    private var loadedProfileIds: List<String> = listOf("car", "bike", "foot")
+
     fun isReady(): Boolean = hopper != null
 
     /**
@@ -76,27 +79,35 @@ internal object OfflineGraphRouter {
             )
 
             shutdownBlocking()
-            val instance = createHopper(graphFolderPath)
+            val resolved = GraphCacheProfileResolver.loadProfiles(graphDir)
+            Log.i(
+                TAG,
+                "Graph profiles: ${resolved.joinToString { "${it.name}|${it.version}" }}",
+            )
+            val instance = createHopper(graphDir, resolved)
             val loaded = try {
-                instance.load()
+                val loadOk = instance.importOrLoad()
+                loadOk.baseGraph.nodes > 0
             } catch (e: Exception) {
-                Log.e(TAG, "GraphHopper.load() threw", e)
+                Log.e(TAG, "GraphHopper.importOrLoad() threw", e)
                 runCatching { instance.close() }
                 return Result.failure(e)
             }
             if (!loaded) {
                 runCatching { instance.close() }
-                val listing = graphDir.list()?.take(8)?.joinToString(", ").orEmpty()
+                val listing = graphDir.list()?.take(12)?.joinToString(", ").orEmpty()
+                val profiles = GraphCacheProfileResolver.profileNames(graphDir).joinToString()
                 return Result.failure(
                     IllegalStateException(
-                        "GraphHopper could not load this graph. " +
-                            "Rebuild with prepare_graph.ps1 (car, bike, foot), use GraphHopper 7.0, " +
-                            "and try a smaller region if the device runs out of memory. " +
+                        "GraphHopper could not load this graph (profiles=$profiles). " +
+                            "Rebuild with prepare_graph.ps1 using GraphHopper 7.0 (car, bike, foot, weighting=fastest). " +
+                            "On device, import the graph-cache folder that contains edges and nodes. " +
                             if (listing.isNotBlank()) "Found: $listing" else "Graph folder is empty.",
                     ),
                 )
             }
             hopper = instance
+            loadedProfileIds = resolved.map { it.name }
             val elapsed = System.currentTimeMillis() - loadStart
             Log.i(
                 TAG,
@@ -122,6 +133,7 @@ internal object OfflineGraphRouter {
     fun shutdownBlocking() {
         runCatching { hopper?.close() }
         hopper = null
+        loadedProfileIds = listOf("car", "bike", "foot")
     }
 
     fun shutdown() {
@@ -270,28 +282,42 @@ internal object OfflineGraphRouter {
     }
 
     /**
-     * Same setup as OfflineGraphNavigation [GraphHopperOfflineEngine.createHopper]:
-     * no [GraphHopper.init] — load() opens an existing PC-built graph-cache as-is.
+     * Opens a PC-built graph-cache: profiles/weightings must match the import (see [GraphCacheProfileResolver]).
      */
-    private fun createHopper(graphFolderPath: String): GraphHopper {
-        val profiles = listOf("car", "bike", "foot").map { id ->
-            Profile(id).setVehicle(id).setWeighting("shortest")
+    private fun createHopper(
+        graphDir: File,
+        profiles: List<Profile>,
+    ): GraphHopper {
+        Log.i(
+            TAG,
+            "Graph profiles: ${profiles.joinToString { "${it.name}|${it.version}" }}",
+        )
+        val chProfiles = profiles.mapNotNull { profile ->
+            val hasCh = File(graphDir, "shortcuts_${profile.name}").exists() ||
+                File(graphDir, "nodes_ch_${profile.name}").exists()
+            if (hasCh) CHProfile(profile.name) else null
         }
         return GraphHopper().apply {
-            setGraphHopperLocation(graphFolderPath)
+            setGraphHopperLocation(graphDir.absolutePath)
             setProfiles(*profiles.toTypedArray())
-            chPreparationHandler.setCHProfiles(
-                *profiles.map { CHProfile(it.name) }.toTypedArray(),
-            )
+            if (chProfiles.isNotEmpty()) {
+                chPreparationHandler.setCHProfiles(*chProfiles.toTypedArray())
+            }
         }
     }
 
     private data class RoadSnap(val point: LatLng, val valid: Boolean)
 
-    private fun profileCandidates(mode: DirectionsTravelMode): List<String> = when (mode) {
-        DirectionsTravelMode.Drive -> listOf("car", "bike", "foot")
-        DirectionsTravelMode.Bicycle -> listOf("bike", "car", "foot")
-        DirectionsTravelMode.Walk -> listOf("foot", "bike", "car")
+    private fun profileCandidates(mode: DirectionsTravelMode): List<String> {
+        val available = loadedProfileIds
+        val preferred = when (mode) {
+            DirectionsTravelMode.Drive -> listOf("car", "bike", "foot")
+            DirectionsTravelMode.Bicycle -> listOf("bike", "car", "foot")
+            DirectionsTravelMode.Walk -> listOf("foot", "bike", "car")
+        }
+        val ordered = preferred.filter { it in available }.toMutableList()
+        available.filterTo(ordered) { it !in ordered }
+        return ordered.ifEmpty { listOf("car") }
     }
 
     private fun routeBetween(

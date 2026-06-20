@@ -65,6 +65,73 @@ import com.example.roadguideapp.auth.OfflineAuthStore
 import com.example.roadguideapp.auth.OfflineFriendsStore
 import com.example.roadguideapp.auth.UserProfileSheetContent
 import com.example.roadguideapp.auth.identifierAbbreviation
+import androidx.activity.ComponentActivity
+import com.example.roadguideapp.goldhunt.GoldHuntConfig
+import com.example.roadguideapp.goldhunt.GoldHuntController
+import com.example.roadguideapp.goldhunt.GoldHuntEntryEffect
+import com.example.roadguideapp.goldhunt.GoldHuntZoomTreasureDisappearEffect
+import com.example.roadguideapp.goldhunt.GoldHuntZoomTreasureRevealEffect
+import com.example.roadguideapp.goldhunt.GoldHuntLocationEffect
+import com.example.roadguideapp.goldhunt.GoldHuntMapZoom
+import com.example.roadguideapp.goldhunt.overlays.SecretPlaceOverlay
+import com.example.roadguideapp.goldhunt.overlays.TreasureOverlay
+import com.example.roadguideapp.goldhunt.GoldHuntSecretPlaceEffect
+import com.example.roadguideapp.goldhunt.GoldHuntTreasureEffect
+import com.example.roadguideapp.goldhunt.secretplace.SecretPlaceCollectOutcome
+import com.example.roadguideapp.goldhunt.secretplace.SecretPlaceMapPick
+import com.example.roadguideapp.goldhunt.treasure.TreasureCollectOutcome
+import com.example.roadguideapp.goldhunt.treasure.TreasureMapPick
+import com.example.roadguideapp.goldhunt.treasure.TreasureViewportLogBuilder
+import com.example.roadguideapp.goldhunt.treasure.TreasureViewportNumberLogBuilder
+import com.example.roadguideapp.goldhunt.overlays.GoldHuntTreasureMapStyle
+import com.example.roadguideapp.goldhunt.ui.GoldHuntCollectEffectTiming
+import com.example.roadguideapp.goldhunt.ui.GoldHuntCollectSparkleEffect
+import com.example.roadguideapp.goldhunt.ui.GoldHuntCollectSparkleStyle
+import com.example.roadguideapp.goldhunt.ui.GoldHuntDiscoveryRevealOverlay
+import com.example.roadguideapp.goldhunt.ui.GoldHuntHud
+import com.example.roadguideapp.goldhunt.ui.GoldHuntHudLayout
+import com.example.roadguideapp.goldhunt.ui.GoldHuntMapButton
+import com.example.roadguideapp.goldhunt.achievements.badges.ui.AchievementBadgeLoader
+import com.example.roadguideapp.goldhunt.achievements.badges.ui.AchievementBadgeSheetContent
+import com.example.roadguideapp.goldhunt.achievements.badges.ui.AchievementBadgeUiState
+import com.example.roadguideapp.goldhunt.achievements.collectionbook.ui.AchievementCollectionBookLoader
+import com.example.roadguideapp.goldhunt.achievements.collectionbook.ui.AchievementCollectionBookSheetContent
+import com.example.roadguideapp.goldhunt.achievements.collectionbook.ui.AchievementCollectionBookUiState
+import com.example.roadguideapp.goldhunt.achievements.titles.ui.AchievementTitleLoader
+import com.example.roadguideapp.goldhunt.achievements.titles.ui.AchievementTitleSheetContent
+import com.example.roadguideapp.goldhunt.achievements.titles.ui.AchievementTitleUiState
+import com.example.roadguideapp.goldhunt.achievements.journal.ui.AchievementJournalLoader
+import com.example.roadguideapp.goldhunt.achievements.journal.ui.AchievementJournalSheetContent
+import com.example.roadguideapp.goldhunt.achievements.journal.ui.AchievementJournalUiState
+import com.example.roadguideapp.goldhunt.achievements.notifications.ui.AchievementNotificationHost
+import com.example.roadguideapp.goldhunt.ui.GoldHuntWorkflowAlertHost
+import com.example.roadguideapp.goldhunt.ui.GoldHuntZoomThresholdFlashOverlay
+import com.example.roadguideapp.goldhunt.profile.ExplorerProfileRepository
+import com.example.roadguideapp.goldhunt.profile.ui.ExplorerProfileLoader
+import com.example.roadguideapp.goldhunt.profile.ui.ExplorerProfileSheetContent
+import com.example.roadguideapp.goldhunt.profile.ui.ExplorerProfileUiState
+import com.example.roadguideapp.goldhunt.clusters.encyclopedia.ui.ClusterEncyclopediaLoader
+import com.example.roadguideapp.goldhunt.clusters.encyclopedia.ui.ClusterEncyclopediaSheetContent
+import com.example.roadguideapp.goldhunt.clusters.encyclopedia.ui.ClusterEncyclopediaUiState
+import com.example.roadguideapp.goldhunt.panorama.journal.ui.PanoramaHuntJournalLoader
+import com.example.roadguideapp.goldhunt.panorama.journal.ui.PanoramaHuntJournalSheetContent
+import com.example.roadguideapp.goldhunt.panorama.journal.ui.PanoramaHuntJournalUiState
+import com.example.roadguideapp.goldhunt.relics.journal.ui.LegendaryRelicJournalLoader
+import com.example.roadguideapp.goldhunt.relics.journal.ui.LegendaryRelicJournalSheetContent
+import com.example.roadguideapp.goldhunt.relics.journal.ui.LegendaryRelicJournalUiState
+import com.example.roadguideapp.goldhunt.relics.showcase.ui.LegendaryRelicShowcaseLoader
+import com.example.roadguideapp.goldhunt.relics.showcase.ui.LegendaryRelicShowcaseSheetContent
+import com.example.roadguideapp.goldhunt.relics.showcase.ui.LegendaryRelicShowcaseUiState
+import com.example.roadguideapp.goldhunt.secretplaces.collectionbook.ui.SecretPlaceCollectionBookLoader
+import com.example.roadguideapp.goldhunt.secretplaces.collectionbook.ui.SecretPlaceCollectionBookSheetContent
+import com.example.roadguideapp.goldhunt.secretplaces.collectionbook.ui.SecretPlaceCollectionBookUiState
+import com.example.roadguideapp.goldhunt.events.collectionbook.ui.SeasonalEventCollectionBookLoader
+import com.example.roadguideapp.goldhunt.events.collectionbook.ui.SeasonalEventCollectionBookSheetContent
+import com.example.roadguideapp.goldhunt.events.collectionbook.ui.SeasonalEventCollectionBookUiState
+import com.example.roadguideapp.goldhunt.treasure.encyclopedia.ui.TreasureEncyclopediaLoader
+import com.example.roadguideapp.goldhunt.treasure.encyclopedia.ui.TreasureEncyclopediaSheetContent
+import com.example.roadguideapp.goldhunt.treasure.encyclopedia.ui.TreasureEncyclopediaUiState
+
 import com.example.roadguideapp.offlinegraph.OfflineGraphEngine
 import com.example.roadguideapp.offlinegraph.toDisplayString
 import com.example.roadguideapp.offlinegraph.userMessage
@@ -89,7 +156,7 @@ private val LocationPermissions = arrayOf(
 )
 
 /**
- * Full-screen MapLibre map with Apple Maps–inspired persistent bottom sheet and map chrome.
+ * Full-screen MapLibre map with Apple MapsΓÇôinspired persistent bottom sheet and map chrome.
  */
 @OptIn(ExperimentalHazeApi::class)
 @Composable
@@ -133,6 +200,42 @@ fun MapLibreMbTilesMap(
         } else {
             authDestination = AuthDestination.SignIn
         }
+    }
+    val onOpenExplorerProfile: () -> Unit = {
+        sheetStack.push(AppleMapSheet.ExplorerProfile, AppleSheetSnap.Large)
+    }
+    val onOpenTreasureEncyclopedia: () -> Unit = {
+        sheetStack.push(AppleMapSheet.TreasureEncyclopedia, AppleSheetSnap.Large)
+    }
+    val onOpenClusterEncyclopedia: () -> Unit = {
+        sheetStack.push(AppleMapSheet.ClusterEncyclopedia, AppleSheetSnap.Large)
+    }
+    val onOpenSecretPlaceCollectionBook: () -> Unit = {
+        sheetStack.push(AppleMapSheet.SecretPlaceCollectionBook, AppleSheetSnap.Large)
+    }
+    val onOpenPanoramaHuntJournal: () -> Unit = {
+        sheetStack.push(AppleMapSheet.PanoramaHuntJournal, AppleSheetSnap.Large)
+    }
+    val onOpenSeasonalEventCollectionBook: () -> Unit = {
+        sheetStack.push(AppleMapSheet.SeasonalEventCollectionBook, AppleSheetSnap.Large)
+    }
+    val onOpenAchievementJournal: () -> Unit = {
+        sheetStack.push(AppleMapSheet.AchievementJournal, AppleSheetSnap.Large)
+    }
+    val onOpenAchievementBadges: () -> Unit = {
+        sheetStack.push(AppleMapSheet.AchievementBadges, AppleSheetSnap.Large)
+    }
+    val onOpenAchievementTitles: () -> Unit = {
+        sheetStack.push(AppleMapSheet.AchievementTitles, AppleSheetSnap.Large)
+    }
+    val onOpenAchievementCollectionBook: () -> Unit = {
+        sheetStack.push(AppleMapSheet.AchievementCollectionBook, AppleSheetSnap.Large)
+    }
+    val onOpenLegendaryRelicJournal: () -> Unit = {
+        sheetStack.push(AppleMapSheet.LegendaryRelicJournal, AppleSheetSnap.Large)
+    }
+    val onOpenLegendaryRelicShowcase: () -> Unit = {
+        sheetStack.push(AppleMapSheet.LegendaryRelicShowcase, AppleSheetSnap.Large)
     }
     val hazeState = remember { HazeState() }
     val layerHeightsDp = remember { mutableStateMapOf<Int, androidx.compose.ui.unit.Dp>() }
@@ -182,6 +285,90 @@ fun MapLibreMbTilesMap(
     var routePlanTick by remember { mutableIntStateOf(0) }
     var showOfflineGraphImportAlert by remember { mutableStateOf(false) }
     var showOfflineRoutingRequiredAlert by remember { mutableStateOf(false) }
+    var showGoldHuntRoutingAlert by remember { mutableStateOf(false) }
+    var showGoldHuntZoomAlert by remember { mutableStateOf(false) }
+    var pendingGoldHuntActivation by remember { mutableStateOf(false) }
+    var mapZoomGrade by remember { mutableStateOf<MapZoomGradeState?>(null) }
+    var collectSparkleEffect by remember { mutableStateOf<GoldHuntCollectSparkleEffect?>(null) }
+    var goldHuntZoomFlashNonce by remember { mutableIntStateOf(0) }
+    val lastGoldHuntZoomRef = remember { mutableStateOf<Double?>(null) }
+    val triggerGoldHuntZoomFlashRef = remember { mutableStateOf<() -> Unit>({}) }
+    val triggerGoldHuntZoomTreasureRevealRef = remember { mutableStateOf<() -> Unit>({}) }
+    val triggerGoldHuntZoomTreasureDisappearRef = remember { mutableStateOf<() -> Unit>({}) }
+
+    val goldHunt = remember { GoldHuntController(context) }
+    val goldHuntActiveState = rememberUpdatedState(goldHunt.isActive)
+    val goldHuntTreasureDisappearingState = rememberUpdatedState(goldHunt.isTreasureDisappearing)
+    val hostActivity = context as ComponentActivity
+
+    DisposableEffect(lifecycle, goldHunt) {
+        val observer = object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) {
+                if (hostActivity.isFinishing) {
+                    goldHunt.shutdown()
+                }
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            if (!hostActivity.isChangingConfigurations) {
+                goldHunt.shutdown()
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        goldHunt.initialize()
+    }
+
+    val activateGoldHunt: () -> Unit = {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                goldHunt.initialize()
+                if (!goldHunt.initialized) return@launch
+                withContext(Dispatchers.Main) {
+                    if (!goldHunt.isActive) {
+                        goldHunt.enterMode()
+                    }
+                }
+                if (!goldHunt.isActive) return@launch
+                runCatching { goldHunt.refreshProfile() }
+                    .onFailure { e ->
+                        android.util.Log.w("MapLibreMbTilesMap", "Gold Hunt profile refresh failed", e)
+                    }
+                withContext(Dispatchers.Main) {
+                    goldHunt.markTreasureDirty()
+                    goldHunt.markSecretDirty()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MapLibreMbTilesMap", "Gold Hunt activation failed", e)
+                withContext(Dispatchers.Main) {
+                    goldHunt.exitMode()
+                }
+            }
+        }
+    }
+
+    val requestGoldHuntActivation: () -> Unit = {
+        when {
+            DirectionsRoutingService.isOfflineRoutingConfigured(context) ->
+                activateGoldHunt()
+            ValhallaReachability.wasProbed() && !ValhallaReachability.isReachable() ->
+                showGoldHuntRoutingAlert = true
+            else -> coroutineScope.launch {
+                val routingReady = withContext(Dispatchers.IO) {
+                    DirectionsRoutingService.goldHuntRoutingAvailable(context)
+                }
+                if (routingReady) {
+                    activateGoldHunt()
+                } else {
+                    showGoldHuntRoutingAlert = true
+                }
+            }
+        }
+    }
+
     var graphImportInProgress by remember { mutableStateOf(false) }
     var graphRestoreInProgress by remember { mutableStateOf(false) }
     var graphImportStatusMessage by remember { mutableStateOf("") }
@@ -295,8 +482,14 @@ fun MapLibreMbTilesMap(
     }
 
     fun endNavigationSession() {
+        val navigationDistanceM = navigationEngine.currentDistanceM()
         isNavigationActive = false
         navigationEngine.stop()
+        if (navigationDistanceM > 0.0) {
+            coroutineScope.launch(Dispatchers.IO) {
+                ExplorerProfileRepository.get(context).addExploredDistance(navigationDistanceM)
+            }
+        }
         navDisplaySmoother.clear()
         navRouteGeometry = emptyList()
         navCameraHolder?.exit()
@@ -446,6 +639,21 @@ fun MapLibreMbTilesMap(
                 controller.mapLibreMap,
                 locationFallbackLatLng,
             )
+            if (pendingGoldHuntActivation) {
+                pendingGoldHuntActivation = false
+                requestGoldHuntActivation()
+            }
+        }
+    }
+
+    val toggleGoldHunt: () -> Unit = {
+        if (goldHunt.isActive) {
+            goldHunt.exitMode()
+        } else if (!hasLocationPermission) {
+            pendingGoldHuntActivation = true
+            locationPermissionLauncher.launch(LocationPermissions)
+        } else {
+            requestGoldHuntActivation()
         }
     }
 
@@ -976,7 +1184,7 @@ fun MapLibreMbTilesMap(
     val navVehiclePositionRef = rememberUpdatedState(navVehiclePosition)
     val navVehicleBearingRef = rememberUpdatedState(navVehicleBearing)
 
-    MapSearchAutocompleteEffect(controller)
+    MapSearchAutocompleteEffect(controller, searchEnabled = !goldHunt.isActive)
     MapNearbyHighlightsEffect(controller)
     MapNearbyCameraFitEffect(
         controller = controller,
@@ -986,9 +1194,117 @@ fun MapLibreMbTilesMap(
     )
     MapPlaceSelectionOverlayEffect(context, controller)
 
+    GoldHuntLocationEffect(context, controller, goldHunt, hasLocationPermission)
+    GoldHuntTreasureEffect(context, controller, goldHunt, map3dEnabled = is3d)
+    GoldHuntSecretPlaceEffect(context, controller, goldHunt, map3dEnabled = is3d)
+    GoldHuntEntryEffect(controller, goldHunt)
+    GoldHuntZoomTreasureRevealEffect(controller, goldHunt, map3dEnabled = is3d)
+    GoldHuntZoomTreasureDisappearEffect(context, controller, goldHunt, map3dEnabled = is3d)
+
+    SideEffect {
+        triggerGoldHuntZoomFlashRef.value = { goldHuntZoomFlashNonce++ }
+        triggerGoldHuntZoomTreasureRevealRef.value = { goldHunt.triggerZoomThresholdTreasureReveal() }
+        triggerGoldHuntZoomTreasureDisappearRef.value = { goldHunt.triggerZoomThresholdTreasureDisappear() }
+    }
+
+    LaunchedEffect(goldHunt.isActive) {
+        if (goldHunt.isActive) {
+            controller.exitSearchMode()
+        }
+    }
+
+    LaunchedEffect(goldHunt.isActive, controller.mapLibreMap) {
+        if (!goldHunt.isActive) {
+            lastGoldHuntZoomRef.value = null
+            return@LaunchedEffect
+        }
+        val zoom = controller.mapLibreMap?.cameraPosition?.zoom?.toDouble() ?: return@LaunchedEffect
+        lastGoldHuntZoomRef.value = zoom
+    }
+
+    LaunchedEffect(collectSparkleEffect) {
+        val effect = collectSparkleEffect ?: return@LaunchedEffect
+        delay(GoldHuntCollectEffectTiming.TOTAL_DURATION_MS.toLong())
+        if (collectSparkleEffect == effect) {
+            collectSparkleEffect = null
+        }
+    }
+
+    val mapTap: (LatLng) -> Unit = mapTap@{ latLng ->
+        if (!goldHunt.isActive) {
+            controller.onMapPlaceTapped(latLng)
+            return@mapTap
+        }
+        val map = controller.mapLibreMap ?: return@mapTap
+        val zoom = map.cameraPosition.zoom.toDouble()
+        if (GoldHuntMapZoom.secretsVisibleAt(zoom)) {
+            val secretSpec = SecretPlaceMapPick.resolve(map, latLng)
+            if (secretSpec != null) {
+                collectSparkleEffect = GoldHuntCollectSparkleEffect(
+                    latLng = LatLng(secretSpec.lat, secretSpec.lng),
+                    style = GoldHuntCollectSparkleStyle.SECRET,
+                    showMarkerPop = true,
+                )
+                coroutineScope.launch {
+                    when (goldHunt.collectSecretPlaceOnTap(secretSpec, zoom)) {
+                        is SecretPlaceCollectOutcome.Discovered -> Unit
+                        SecretPlaceCollectOutcome.AlreadyDiscovered,
+                        SecretPlaceCollectOutcome.NotRevealed,
+                        SecretPlaceCollectOutcome.NotReady,
+                        -> collectSparkleEffect = null
+                    }
+                }
+                return@mapTap
+            }
+        }
+        if (GoldHuntMapZoom.treasuresVisibleAt(zoom)) {
+            val treasureSpec = TreasureMapPick.resolve(map, latLng)
+            if (treasureSpec != null) {
+                collectSparkleEffect = GoldHuntCollectSparkleEffect(
+                    latLng = LatLng(treasureSpec.lat, treasureSpec.lng),
+                    style = GoldHuntCollectSparkleStyle.fromTreasureType(treasureSpec.type),
+                    treasureType = treasureSpec.type,
+                    showMarkerPop = true,
+                )
+                goldHunt.hideTreasureForCollect(treasureSpec.treasureId)
+                coroutineScope.launch {
+                    when (val outcome = goldHunt.collectTreasureOnTap(treasureSpec)) {
+                        is TreasureCollectOutcome.Collected -> {
+                            if (outcome.credits > 0) {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_treasure_collected, outcome.credits),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                        TreasureCollectOutcome.AlreadyCollected -> {
+                            collectSparkleEffect = null
+                            goldHunt.revealTreasureAfterFailedCollect(treasureSpec.treasureId)
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_treasure_already_collected),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        TreasureCollectOutcome.NotReady -> {
+                            collectSparkleEffect = null
+                            goldHunt.revealTreasureAfterFailedCollect(treasureSpec.treasureId)
+                        }
+                    }
+                }
+                return@mapTap
+            }
+        } else {
+            showGoldHuntZoomAlert = true
+            return@mapTap
+        }
+        controller.onMapPlaceTapped(latLng)
+    }
+
     val onMapPlaceTapRef = remember { mutableStateOf<(LatLng) -> Unit>({}) }
     SideEffect {
-        onMapPlaceTapRef.value = { latLng -> controller.onMapPlaceTapped(latLng) }
+        onMapPlaceTapRef.value = mapTap
     }
 
     LaunchedEffect(sheetBlurRadiusPx, mapViewRef.value) {
@@ -1060,14 +1376,65 @@ fun MapLibreMbTilesMap(
                                             suppressForCameraMotion = suppressForCameraMotion,
                                         )
                                     }
+                                    fun publishZoomGrade() {
+                                        mapView.post {
+                                            mapZoomGrade = MapZoomGradeCalculator.fromMap(map, mapView)
+                                        }
+                                    }
                                     fun publishMapOverlayPositions() {
                                         val needsOverlay = activeDirectionsState.value != null ||
                                             (
                                                 activeNearbyCategoryState.value != null &&
                                                     nearbyOverlayResultsState.value.isNotEmpty()
                                                 )
-                                        if (!needsOverlay) return
+                                        val goldHuntActive = goldHuntActiveState.value
+                                        if (!needsOverlay && !goldHuntActive) return
                                         mapView.post { controller.mapOverlayCameraTick++ }
+                                    }
+                                    fun checkGoldHuntZoomThresholdCrossing() {
+                                        if (!goldHuntActiveState.value) {
+                                            lastGoldHuntZoomRef.value = null
+                                            return
+                                        }
+                                        val zoom = map.cameraPosition.zoom.toDouble()
+                                        val threshold = GoldHuntConfig.TREASURE_DISPLAY_MIN_ZOOM
+                                        val previousZoom = lastGoldHuntZoomRef.value
+                                        if (previousZoom != null && previousZoom.isFinite() && zoom.isFinite()) {
+                                            val wasAbove = previousZoom >= threshold
+                                            val isAbove = zoom >= threshold
+                                            if (wasAbove != isAbove) {
+                                                mapView.post {
+                                                    triggerGoldHuntZoomFlashRef.value()
+                                                    if (isAbove) {
+                                                        triggerGoldHuntZoomTreasureRevealRef.value()
+                                                    } else {
+                                                        triggerGoldHuntZoomTreasureDisappearRef.value()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        lastGoldHuntZoomRef.value = zoom
+                                    }
+                                    fun hideGoldHuntMarkersBelowMinZoom() {
+                                        if (!goldHuntActiveState.value) return
+                                        val style = controller.mapRuntime?.second ?: return
+                                        val zoom = map.cameraPosition.zoom.toDouble()
+                                        if (!GoldHuntMapZoom.treasuresVisibleAt(zoom)) {
+                                            if (!goldHuntTreasureDisappearingState.value) {
+                                                TreasureOverlay.remove(style)
+                                                mapView.post {
+                                                    goldHunt.updateTreasureValueLog(
+                                                        TreasureViewportLogBuilder.fromTreasures(emptyList(), zoom),
+                                                    )
+                                                    goldHunt.updateTreasureNumberLog(
+                                                        TreasureViewportNumberLogBuilder.fromTreasures(emptyList(), zoom),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        if (!GoldHuntMapZoom.secretsVisibleAt(zoom)) {
+                                            SecretPlaceOverlay.remove(style)
+                                        }
                                     }
                                     map.addOnCameraMoveStartedListener { reason ->
                                         if (
@@ -1081,6 +1448,9 @@ fun MapLibreMbTilesMap(
                                     map.addOnCameraMoveListener {
                                         publishBearing()
                                         publishScaleRuler()
+                                        publishZoomGrade()
+                                        checkGoldHuntZoomThresholdCrossing()
+                                        hideGoldHuntMarkersBelowMinZoom()
                                         publishMapOverlayPositions()
                                         syncExtrusionDuring3d(suppressForCameraMotion = true)
                                     }
@@ -1089,6 +1459,9 @@ fun MapLibreMbTilesMap(
                                     map.addOnCameraIdleListener {
                                         publishBearing()
                                         publishScaleRuler()
+                                        publishZoomGrade()
+                                        checkGoldHuntZoomThresholdCrossing()
+                                        hideGoldHuntMarkersBelowMinZoom()
                                         publishMapOverlayPositions()
                                         syncExtrusionDuring3d(suppressForCameraMotion = false)
                                         if (isNavigationActiveRef.value && navUserZoomGestureRef.value) {
@@ -1220,7 +1593,9 @@ fun MapLibreMbTilesMap(
                                 searchLoading = controller.searchLoading,
                                 searchError = controller.searchError,
                                 onSearchResultSelected = { controller.focusSearchResult(it) },
+                                searchEnabled = !goldHunt.isActive,
                                 onSearchSubmit = { query ->
+                                    if (goldHunt.isActive) return@AppleMapsPersistentSheetContent
                                     val trimmed = query.trim()
                                     if (trimmed.isEmpty()) return@AppleMapsPersistentSheetContent
                                     coroutineScope.launch {
@@ -1482,6 +1857,327 @@ fun MapLibreMbTilesMap(
                             )
                         }
 
+                        AppleMapSheet.ExplorerProfile -> {
+                            var explorerProfileState by remember {
+                                mutableStateOf(ExplorerProfileUiState.Empty)
+                            }
+                            var explorerProfileLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(
+                                goldHunt.treasureRevision,
+                                goldHunt.secretRevision,
+                                goldHunt.clusterRevision,
+                                goldHunt.profile,
+                            ) {
+                                explorerProfileLoading = true
+                                explorerProfileState = withContext(Dispatchers.IO) {
+                                    ExplorerProfileLoader.load(context)
+                                }
+                                explorerProfileLoading = false
+                            }
+                            ExplorerProfileSheetContent(
+                                state = explorerProfileState,
+                                isLoading = explorerProfileLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                onOpenTreasureEncyclopedia = onOpenTreasureEncyclopedia,
+                                onOpenClusterEncyclopedia = onOpenClusterEncyclopedia,
+                                onOpenSecretPlaceCollectionBook = onOpenSecretPlaceCollectionBook,
+                                onOpenPanoramaHuntJournal = onOpenPanoramaHuntJournal,
+                                onOpenSeasonalEventCollectionBook = onOpenSeasonalEventCollectionBook,
+                                onOpenAchievementJournal = onOpenAchievementJournal,
+                                onOpenAchievementBadges = onOpenAchievementBadges,
+                                onOpenAchievementTitles = onOpenAchievementTitles,
+                                onOpenAchievementCollectionBook = onOpenAchievementCollectionBook,
+                                onOpenLegendaryRelicJournal = onOpenLegendaryRelicJournal,
+                                onOpenLegendaryRelicShowcase = onOpenLegendaryRelicShowcase,
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.AchievementCollectionBook -> {
+                            var achievementCollectionBookState by remember {
+                                mutableStateOf(AchievementCollectionBookUiState.Empty)
+                            }
+                            var achievementCollectionBookLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.profile, goldHunt.treasureRevision) {
+                                achievementCollectionBookLoading = true
+                                achievementCollectionBookState = withContext(Dispatchers.IO) {
+                                    AchievementCollectionBookLoader.load(context)
+                                }
+                                achievementCollectionBookLoading = false
+                            }
+                            AchievementCollectionBookSheetContent(
+                                state = achievementCollectionBookState,
+                                isLoading = achievementCollectionBookLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.AchievementTitles -> {
+                            var achievementTitleState by remember {
+                                mutableStateOf(AchievementTitleUiState.Empty)
+                            }
+                            var achievementTitleLoading by remember { mutableStateOf(true) }
+                            var achievementTitleRevision by remember { mutableIntStateOf(0) }
+                            LaunchedEffect(goldHunt.profile, goldHunt.treasureRevision, achievementTitleRevision) {
+                                achievementTitleLoading = true
+                                achievementTitleState = withContext(Dispatchers.IO) {
+                                    AchievementTitleLoader.load(context)
+                                }
+                                achievementTitleLoading = false
+                            }
+                            AchievementTitleSheetContent(
+                                state = achievementTitleState,
+                                isLoading = achievementTitleLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                onSetActive = { titleKey ->
+                                    coroutineScope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            AchievementTitleLoader.setActive(context, titleKey)
+                                        }
+                                        achievementTitleRevision++
+                                    }
+                                },
+                                onClearActive = {
+                                    coroutineScope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            AchievementTitleLoader.clearActive(context)
+                                        }
+                                        achievementTitleRevision++
+                                    }
+                                },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.AchievementBadges -> {
+                            var achievementBadgeState by remember {
+                                mutableStateOf(AchievementBadgeUiState.Empty)
+                            }
+                            var achievementBadgeLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.profile, goldHunt.treasureRevision) {
+                                achievementBadgeLoading = true
+                                achievementBadgeState = withContext(Dispatchers.IO) {
+                                    AchievementBadgeLoader.load(context)
+                                }
+                                achievementBadgeLoading = false
+                            }
+                            AchievementBadgeSheetContent(
+                                state = achievementBadgeState,
+                                isLoading = achievementBadgeLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.AchievementJournal -> {
+                            var achievementJournalState by remember {
+                                mutableStateOf(AchievementJournalUiState.Empty)
+                            }
+                            var achievementJournalLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.profile, goldHunt.treasureRevision) {
+                                achievementJournalLoading = true
+                                achievementJournalState = withContext(Dispatchers.IO) {
+                                    AchievementJournalLoader.load(context)
+                                }
+                                achievementJournalLoading = false
+                            }
+                            AchievementJournalSheetContent(
+                                state = achievementJournalState,
+                                isLoading = achievementJournalLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.SeasonalEventCollectionBook -> {
+                            var seasonalCollectionBookState by remember {
+                                mutableStateOf(SeasonalEventCollectionBookUiState.Empty)
+                            }
+                            var seasonalCollectionBookLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.treasureRevision, goldHunt.profile) {
+                                seasonalCollectionBookLoading = true
+                                seasonalCollectionBookState = withContext(Dispatchers.IO) {
+                                    SeasonalEventCollectionBookLoader.load(context)
+                                }
+                                seasonalCollectionBookLoading = false
+                            }
+                            SeasonalEventCollectionBookSheetContent(
+                                state = seasonalCollectionBookState,
+                                isLoading = seasonalCollectionBookLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.LegendaryRelicShowcase -> {
+                            var legendaryRelicShowcaseState by remember {
+                                mutableStateOf(LegendaryRelicShowcaseUiState.Empty)
+                            }
+                            var legendaryRelicShowcaseLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.profile, goldHunt.treasureRevision) {
+                                legendaryRelicShowcaseLoading = true
+                                legendaryRelicShowcaseState = withContext(Dispatchers.IO) {
+                                    LegendaryRelicShowcaseLoader.load(context)
+                                }
+                                legendaryRelicShowcaseLoading = false
+                            }
+                            LegendaryRelicShowcaseSheetContent(
+                                state = legendaryRelicShowcaseState,
+                                isLoading = legendaryRelicShowcaseLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.LegendaryRelicJournal -> {
+                            var legendaryRelicJournalState by remember {
+                                mutableStateOf(LegendaryRelicJournalUiState.Empty)
+                            }
+                            var legendaryRelicJournalLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.profile, goldHunt.treasureRevision) {
+                                legendaryRelicJournalLoading = true
+                                legendaryRelicJournalState = withContext(Dispatchers.IO) {
+                                    LegendaryRelicJournalLoader.load(context)
+                                }
+                                legendaryRelicJournalLoading = false
+                            }
+                            LegendaryRelicJournalSheetContent(
+                                state = legendaryRelicJournalState,
+                                isLoading = legendaryRelicJournalLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.PanoramaHuntJournal -> {
+                            var panoramaHuntJournalState by remember {
+                                mutableStateOf(PanoramaHuntJournalUiState.Empty)
+                            }
+                            var panoramaHuntJournalLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.profile) {
+                                panoramaHuntJournalLoading = true
+                                panoramaHuntJournalState = withContext(Dispatchers.IO) {
+                                    PanoramaHuntJournalLoader.load(context)
+                                }
+                                panoramaHuntJournalLoading = false
+                            }
+                            PanoramaHuntJournalSheetContent(
+                                state = panoramaHuntJournalState,
+                                isLoading = panoramaHuntJournalLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.SecretPlaceCollectionBook -> {
+                            var collectionBookState by remember {
+                                mutableStateOf(SecretPlaceCollectionBookUiState.Empty)
+                            }
+                            var collectionBookLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.secretRevision, goldHunt.profile) {
+                                collectionBookLoading = true
+                                collectionBookState = withContext(Dispatchers.IO) {
+                                    SecretPlaceCollectionBookLoader.load(context)
+                                }
+                                collectionBookLoading = false
+                            }
+                            SecretPlaceCollectionBookSheetContent(
+                                state = collectionBookState,
+                                isLoading = collectionBookLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.ClusterEncyclopedia -> {
+                            var clusterEncyclopediaState by remember {
+                                mutableStateOf(ClusterEncyclopediaUiState.Empty)
+                            }
+                            var clusterEncyclopediaLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.clusterRevision, goldHunt.profile) {
+                                clusterEncyclopediaLoading = true
+                                clusterEncyclopediaState = withContext(Dispatchers.IO) {
+                                    ClusterEncyclopediaLoader.load(context)
+                                }
+                                clusterEncyclopediaLoading = false
+                            }
+                            ClusterEncyclopediaSheetContent(
+                                state = clusterEncyclopediaState,
+                                isLoading = clusterEncyclopediaLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
+                        AppleMapSheet.TreasureEncyclopedia -> {
+                            var encyclopediaState by remember {
+                                mutableStateOf(TreasureEncyclopediaUiState.Empty)
+                            }
+                            var encyclopediaLoading by remember { mutableStateOf(true) }
+                            LaunchedEffect(goldHunt.treasureRevision, goldHunt.profile) {
+                                encyclopediaLoading = true
+                                encyclopediaState = withContext(Dispatchers.IO) {
+                                    TreasureEncyclopediaLoader.load(context)
+                                }
+                                encyclopediaLoading = false
+                            }
+                            TreasureEncyclopediaSheetContent(
+                                state = encyclopediaState,
+                                isLoading = encyclopediaLoading,
+                                sheetTheme = sheetTheme,
+                                scrollState = scrollState,
+                                contentScrollEnabled = contentScrollEnabled,
+                                sheetGestures = sheetGestures,
+                                onClose = { sheetStack.pop() },
+                                modifier = sheetModifier,
+                            )
+                        }
+
                         is AppleMapSheet.Directions -> {
                             AppleMapsDirectionsPanel(
                                 origin = sheet.origin,
@@ -1557,15 +2253,43 @@ fun MapLibreMbTilesMap(
         }
 
         if (mapReady) {
-            mapScaleRuler?.let { scale ->
-                MapScaleRuler(
-                    state = scale,
+            val treasureValueLog = if (goldHunt.isActive) null else goldHunt.treasureValueLog
+            val treasureNumberLog = if (goldHunt.isActive) null else goldHunt.treasureNumberLog
+            val showZoomGradeOverlay = mapZoomGrade != null && !goldHunt.isActive
+            val hasMapOverlayMetrics =
+                mapScaleRuler != null ||
+                    showZoomGradeOverlay ||
+                    treasureValueLog != null ||
+                    treasureNumberLog != null
+            if (hasMapOverlayMetrics) {
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .zIndex(0.5f)
                         .statusBarsPadding()
-                        .padding(start = 12.dp, top = 8.dp),
-                )
+                        .padding(
+                            start = 12.dp,
+                            top = if (goldHunt.isActive) {
+                                GoldHuntHudLayout.scaleRulerTopBelowScoreBar
+                            } else {
+                                8.dp
+                            },
+                        ),
+                ) {
+                    var overlayTopGap = false
+                    mapScaleRuler?.let { scale ->
+                        MapScaleRuler(state = scale)
+                        overlayTopGap = true
+                    }
+                    if (showZoomGradeOverlay) {
+                        mapZoomGrade?.let { grade ->
+                            MapZoomGradeDisplay(
+                                state = grade,
+                                modifier = Modifier.padding(top = if (overlayTopGap) 6.dp else 0.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -1647,9 +2371,16 @@ fun MapLibreMbTilesMap(
                 },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .zIndex(10f)
+                    .zIndex(if (goldHunt.isActive) 13f else 10f)
                     .statusBarsPadding()
-                    .padding(end = 12.dp, top = 8.dp),
+                    .padding(
+                        end = 12.dp,
+                        top = if (goldHunt.isActive) {
+                            GoldHuntHudLayout.scoreBarTopPadding
+                        } else {
+                            8.dp
+                        },
+                    ),
             )
         }
 
@@ -1666,6 +2397,16 @@ fun MapLibreMbTilesMap(
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
                     .padding(end = 12.dp, bottom = bottomChromePadding),
+            )
+
+            GoldHuntMapButton(
+                sheetTheme = sheetTheme,
+                isActive = goldHunt.isActive,
+                onClick = toggleGoldHunt,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, bottom = bottomChromePadding + 60.dp),
             )
 
             Surface(
@@ -1867,6 +2608,82 @@ fun MapLibreMbTilesMap(
                         },
                     ) {
                         Text(text = stringResource(R.string.claim_close))
+                    }
+                },
+            )
+        }
+
+
+        if (goldHunt.isActive) {
+            GoldHuntZoomThresholdFlashOverlay(
+                triggerNonce = goldHuntZoomFlashNonce,
+                isDarkAppearance = isDarkAppearance,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(5f),
+            )
+            val collectDisplay3d = controller.mapLibreMap?.let { map ->
+                GoldHuntTreasureMapStyle.isDisplay3d(
+                    map3dEnabled = is3d,
+                    cameraTiltDeg = map.cameraPosition.tilt,
+                )
+            } ?: false
+            GoldHuntDiscoveryRevealOverlay(
+                map = controller.mapLibreMap,
+                mapView = mapViewRef.value,
+                cameraTick = controller.mapOverlayCameraTick,
+                targetLatLng = collectSparkleEffect?.latLng,
+                visible = collectSparkleEffect != null,
+                sparkleStyle = collectSparkleEffect?.style ?: GoldHuntCollectSparkleStyle.STAR,
+                treasureType = collectSparkleEffect?.treasureType,
+                showMarkerPop = collectSparkleEffect?.showMarkerPop == true,
+                display3d = collectDisplay3d,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(7f),
+            )
+        }
+
+        GoldHuntHud(
+            goldHunt = goldHunt,
+            isDarkAppearance = isDarkAppearance,
+            bottomPadding = bottomChromePadding,
+            zoomGrade = if (goldHunt.isActive) mapZoomGrade else null,
+            onOpenExplorerProfile = if (goldHunt.isActive) onOpenExplorerProfile else null,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(11f)
+                .statusBarsPadding()
+                .padding(top = GoldHuntHudLayout.scoreBarTopPadding),
+        )
+
+        AchievementNotificationHost(isGoldHuntActive = goldHunt.isActive)
+
+        GoldHuntWorkflowAlertHost(goldHunt = goldHunt)
+
+        if (showGoldHuntZoomAlert) {
+            AlertDialog(
+                onDismissRequest = { showGoldHuntZoomAlert = false },
+                text = {
+                    Text(text = stringResource(R.string.gold_hunt_treasure_zoom_required))
+                },
+                confirmButton = {
+                    TextButton(onClick = { showGoldHuntZoomAlert = false }) {
+                        Text(text = stringResource(R.string.apple_ok))
+                    }
+                },
+            )
+        }
+
+        if (showGoldHuntRoutingAlert) {
+            AlertDialog(
+                onDismissRequest = { showGoldHuntRoutingAlert = false },
+                text = {
+                    Text(text = stringResource(R.string.gold_hunt_routing_required))
+                },
+                confirmButton = {
+                    TextButton(onClick = { showGoldHuntRoutingAlert = false }) {
+                        Text(text = stringResource(R.string.apple_ok))
                     }
                 },
             )

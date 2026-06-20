@@ -23,6 +23,15 @@ internal object ValhallaReachability {
 
     fun isReachable(): Boolean = reachable
 
+    /** Always re-probes the server (e.g. before Gold Hunt activation). */
+    suspend fun probeNow(): Boolean = mutex.withLock {
+        reachable = withContext(Dispatchers.IO) { ping() }
+        probed = true
+        reachable
+    }
+
+    fun wasProbed(): Boolean = probed
+
     private fun ping(): Boolean {
         val base = MapServerConfig.valhallaBaseUrl
         val url = try {

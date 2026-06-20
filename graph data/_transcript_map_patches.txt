@@ -1,0 +1,1372 @@
+=== LINE 12 StrReplace ===
+OLD:
+    var showOfflineRoutingRequiredAlert by remember { mutableStateOf(false) }
+NEW:
+    var showOfflineRoutingRequiredAlert by remember { mutableStateOf(false) }
+    var showGoldHuntRoutingAlert by remember { mutableStateOf(false) }
+
+=== LINE 12 StrReplace ===
+OLD:
+    val activateGoldHunt: () -> Unit = {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                goldHunt.initialize()
+                withContext(Dispatchers.Main) {
+                    if (!goldHunt.isActive) {
+                        goldHunt.enterMode()
+                    }
+                }
+                goldHunt.refreshProfile()
+                withContext(Dispatchers.Main) {
+                    goldHunt.markFogDirty()
+                    goldHunt.markTreasureDirty()
+                    goldHunt.markSecretDirty()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MapLibreMbTilesMap", "Gold Hunt activation failed", e)
+                withContext(Dispatchers.Main) {
+                    goldHunt.exitMode()
+                }
+            }
+        }
+    }
+NEW:
+    val activateGoldHunt: () -> Unit = {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                goldHunt.initialize()
+                withContext(Dispatchers.Main) {
+                    if (!goldHunt.isActive) {
+                        goldHunt.enterMode()
+                    }
+                }
+                goldHunt.refreshProfile()
+                withContext(Dispatchers.Main) {
+                    goldHunt.markFogDirty()
+                    goldHunt.markTreasureDirty()
+                    goldHunt.markSecretDirty()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MapLibreMbTilesMap", "Gold Hunt activation failed", e)
+                withContext(Dispatchers.Main) {
+                    goldHunt.exitMode()
+                }
+            }
+        }
+    }
+
+    val requestGoldHuntActivation: () -> Unit = {
+        coroutineScope.launch {
+            val routingReady = withContext(Dispatchers.IO) {
+                DirectionsRoutingService.goldHuntRoutingAvailable(context)
+            }
+            if (routingReady) {
+                activateGoldHunt()
+            } else {
+                showGoldHuntRoutingAlert = true
+            }
+        }
+    }
+
+=== LINE 12 StrReplace ===
+OLD:
+            if (pendingGoldHuntActivation) {
+                pendingGoldHuntActivation = false
+                activateGoldHunt()
+            } else {
+NEW:
+            if (pendingGoldHuntActivation) {
+                pendingGoldHuntActivation = false
+                requestGoldHuntActivation()
+            } else {
+
+=== LINE 12 StrReplace ===
+OLD:
+        } else if (!hasLocationPermission) {
+            pendingGoldHuntActivation = true
+            locationPermissionLauncher.launch(LocationPermissions)
+        } else {
+            activateGoldHunt()
+        }
+    }
+NEW:
+        } else if (!hasLocationPermission) {
+            pendingGoldHuntActivation = true
+            locationPermissionLauncher.launch(LocationPermissions)
+        } else {
+            requestGoldHuntActivation()
+        }
+    }
+
+=== LINE 12 StrReplace ===
+OLD:
+        // Last in stack: modal window above map (AndroidView), sheets, auth, and other dialogs.
+        OfflineRoutingRequiredModal(
+            visible = showOfflineRoutingRequiredAlert,
+            onDismiss = { showOfflineRoutingRequiredAlert = false },
+        )
+    }
+}
+NEW:
+        if (showGoldHuntRoutingAlert) {
+            AlertDialog(
+                onDismissRequest = { showGoldHuntRoutingAlert = false },
+                text = {
+                    Text(text = stringResource(R.string.gold_hunt_routing_required))
+                },
+                confirmButton = {
+                    TextButton(onClick = { showGoldHuntRoutingAlert = false }) {
+                        Text(text = stringResource(R.string.apple_ok))
+                    }
+                },
+            )
+        }
+
+        // Last in stack: modal window above map (AndroidView), sheets, auth, and other dialogs.
+        OfflineRoutingRequiredModal(
+            visible = showOfflineRoutingRequiredAlert,
+            onDismiss = { showOfflineRoutingRequiredAlert = false },
+        )
+    }
+}
+
+=== LINE 13 StrReplace ===
+OLD:
+    val requestGoldHuntActivation: () -> Unit = {
+        coroutineScope.launch {
+            val routingReady = withContext(Dispatchers.IO) {
+                DirectionsRoutingService.goldHuntRoutingAvailable(context)
+            }
+            if (routingReady) {
+                activateGoldHunt()
+            } else {
+                showGoldHuntRoutingAlert = true
+            }
+        }
+    }
+NEW:
+    val requestGoldHuntActivation: () -> Unit = {
+        if (DirectionsRoutingService.isOfflineRoutingConfigured(context)) {
+            activateGoldHunt()
+            return@Unit
+        }
+        if (ValhallaReachability.wasProbed() && !ValhallaReachability.isReachable()) {
+            showGoldHuntRoutingAlert = true
+            return@Unit
+        }
+        coroutineScope.launch {
+            val routingReady = withContext(Dispatchers.IO) {
+                DirectionsRoutingService.goldHuntRoutingAvailable(context)
+            }
+            if (routingReady) {
+                activateGoldHunt()
+            } else {
+                showGoldHuntRoutingAlert = true
+            }
+        }
+    }
+
+=== LINE 14 StrReplace ===
+OLD:
+    val requestGoldHuntActivation: () -> Unit = {
+        if (DirectionsRoutingService.isOfflineRoutingConfigured(context)) {
+            activateGoldHunt()
+            return@Unit
+        }
+        if (ValhallaReachability.wasProbed() && !ValhallaReachability.isReachable()) {
+            showGoldHuntRoutingAlert = true
+            return@Unit
+        }
+        coroutineScope.launch {
+            val routingReady = withContext(Dispatchers.IO) {
+                DirectionsRoutingService.goldHuntRoutingAvailable(context)
+            }
+            if (routingReady) {
+                activateGoldHunt()
+            } else {
+                showGoldHuntRoutingAlert = true
+            }
+        }
+    }
+NEW:
+    val requestGoldHuntActivation: () -> Unit = {
+        when {
+            DirectionsRoutingService.isOfflineRoutingConfigured(context) ->
+                activateGoldHunt()
+            ValhallaReachability.wasProbed() && !ValhallaReachability.isReachable() ->
+                showGoldHuntRoutingAlert = true
+            else -> coroutineScope.launch {
+                val routingReady = withContext(Dispatchers.IO) {
+                    DirectionsRoutingService.goldHuntRoutingAvailable(context)
+                }
+                if (routingReady) {
+                    activateGoldHunt()
+                } else {
+                    showGoldHuntRoutingAlert = true
+                }
+            }
+        }
+    }
+
+=== LINE 31 StrReplace ===
+OLD:
+import com.example.roadguideapp.goldhunt.ui.GoldHuntHud
+import com.example.roadguideapp.goldhunt.ui.GoldHuntMapButton
+NEW:
+import com.example.roadguideapp.goldhunt.ui.GoldHuntHud
+import com.example.roadguideapp.goldhunt.ui.GoldHuntMapButton
+import com.example.roadguideapp.goldhunt.ui.GoldHuntWorkflowAlertHost
+
+=== LINE 31 StrReplace ===
+OLD:
+                withContext(Dispatchers.Main) {
+                    if (!goldHunt.isActive) {
+                        goldHunt.enterMode()
+                    }
+                }
+NEW:
+                withContext(Dispatchers.Main) {
+                    if (!goldHunt.isActive) {
+                        goldHunt.enterMode()
+                        goldHunt.scheduleIntroOnFirstActivation()
+                    }
+                }
+
+=== LINE 31 StrReplace ===
+OLD:
+        if (showGoldHuntRoutingAlert) {
+            AlertDialog(
+NEW:
+        GoldHuntWorkflowAlertHost(goldHunt = goldHunt)
+
+        if (showGoldHuntRoutingAlert) {
+            AlertDialog(
+
+=== LINE 34 StrReplace ===
+OLD:
+                    if (!goldHunt.isActive) {
+                        goldHunt.enterMode()
+                        goldHunt.scheduleIntroOnFirstActivation()
+                    }
+NEW:
+                    if (!goldHunt.isActive) {
+                        goldHunt.enterMode()
+                    }
+
+=== LINE 40 StrReplace ===
+OLD:
+    var showGoldHuntRoutingAlert by remember { mutableStateOf(false) }
+NEW:
+    var showGoldHuntRoutingAlert by remember { mutableStateOf(false) }
+    var showGoldHuntZoomAlert by remember { mutableStateOf(false) }
+
+=== LINE 40 StrReplace ===
+OLD:
+            coroutineScope.launch {
+                val discovery = goldHunt.discoverAtMapLocation(
+                    latLng.latitude,
+                    latLng.longitude,
+                )
+                val message = when {
+                    discovery.creditsEarned > 0 ->
+                        context.getString(
+                            R.string.gold_hunt_discovery_credits,
+                            discovery.creditsEarned,
+                        )
+                    discovery.hadNewDiscovery ->
+                        context.getString(R.string.gold_hunt_discovery_recorded)
+                    !discovery.inPlayRegion ->
+                        context.getString(R.string.gold_hunt_discovery_outside_region)
+                    else ->
+                        context.getString(R.string.gold_hunt_discovery_already)
+                }
+                if (discovery.hadNewDiscovery || discovery.creditsEarned > 0 || !discovery.inPlayRegion) {
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                } else {
+                    controller.onMapPlaceTapped(latLng)
+                }
+            }
+NEW:
+            if (zoom < GoldHuntConfig.AREA_DISCOVERY_MIN_ZOOM) {
+                showGoldHuntZoomAlert = true
+                return@mapTap
+            }
+            coroutineScope.launch {
+                val discovery = goldHunt.discoverAtMapLocation(
+                    latLng.latitude,
+                    latLng.longitude,
+                )
+                val message = when {
+                    discovery.creditsEarned > 0 ->
+                        context.getString(
+                            R.string.gold_hunt_discovery_credits,
+                            discovery.creditsEarned,
+                        )
+                    discovery.hadNewDiscovery ->
+                        context.getString(R.string.gold_hunt_discovery_recorded)
+                    !discovery.inPlayRegion ->
+                        context.getString(R.string.gold_hunt_discovery_outside_region)
+                    else ->
+                        context.getString(R.string.gold_hunt_discovery_already)
+                }
+                if (discovery.hadNewDiscovery || discovery.creditsEarned > 0 || !discovery.inPlayRegion) {
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                } else {
+                    controller.onMapPlaceTapped(latLng)
+                }
+            }
+
+=== LINE 40 StrReplace ===
+OLD:
+    GoldHuntLocationEffect(context, goldHunt, hasLocationPermission)
+NEW:
+    GoldHuntLocationEffect(context, controller, goldHunt, hasLocationPermission)
+
+=== LINE 40 StrReplace ===
+OLD:
+        GoldHuntWorkflowAlertHost(goldHunt = goldHunt)
+
+        if (showGoldHuntRoutingAlert) {
+NEW:
+        GoldHuntWorkflowAlertHost(goldHunt = goldHunt)
+
+        if (showGoldHuntZoomAlert) {
+            AlertDialog(
+                onDismissRequest = { showGoldHuntZoomAlert = false },
+                text = {
+                    Text(text = stringResource(R.string.gold_hunt_area_zoom_required))
+                },
+                confirmButton = {
+                    TextButton(onClick = { showGoldHuntZoomAlert = false }) {
+                        Text(text = stringResource(R.string.apple_ok))
+                    }
+                },
+            )
+        }
+
+        if (showGoldHuntRoutingAlert) {
+
+=== LINE 89 StrReplace ===
+OLD:
+    GoldHuntTreasureEffect(controller, goldHunt)
+NEW:
+    GoldHuntTreasureEffect(context, controller, goldHunt)
+
+=== LINE 106 StrReplace ===
+OLD:
+    GoldHuntTreasureEffect(context, controller, goldHunt)
+    GoldHuntSecretPlaceEffect(context, controller, goldHunt)
+NEW:
+    GoldHuntTreasureEffect(context, controller, goldHunt, map3dEnabled = is3d)
+    GoldHuntSecretPlaceEffect(context, controller, goldHunt, map3dEnabled = is3d)
+
+=== LINE 114 StrReplace ===
+OLD:
+    GoldHuntFogEffect(controller, goldHunt)
+NEW:
+    GoldHuntFogEffect(context, controller, goldHunt, isDarkAppearance = isDarkAppearance)
+
+=== LINE 160 StrReplace ===
+OLD:
+import com.example.roadguideapp.goldhunt.GoldHuntFogEffect
+NEW:
+
+
+=== LINE 160 StrReplace ===
+OLD:
+import com.example.roadguideapp.goldhunt.overlays.DiscoveryFogOverlay
+NEW:
+
+
+=== LINE 160 StrReplace ===
+OLD:
+                    goldHunt.markFogDirty()
+                    goldHunt.markTreasureDirty()
+NEW:
+                    goldHunt.markTreasureDirty()
+
+=== LINE 160 StrReplace ===
+OLD:
+                mapViewRef.value?.post {
+                    DiscoveryFogOverlay.remove(style)
+                    ExploredRoadOverlay.remove(style)
+NEW:
+                mapViewRef.value?.post {
+                    ExploredRoadOverlay.remove(style)
+
+=== LINE 160 StrReplace ===
+OLD:
+    GoldHuntFogEffect(context, controller, goldHunt, isDarkAppearance = isDarkAppearance)
+    GoldHuntExploredRoadsEffect(controller, goldHunt)
+NEW:
+    GoldHuntExploredRoadsEffect(controller, goldHunt)
+
+=== LINE 187 StrReplace ===
+OLD:
+import com.example.roadguideapp.goldhunt.GoldHuntExploredRoadsEffect
+NEW:
+
+
+=== LINE 187 StrReplace ===
+OLD:
+import com.example.roadguideapp.goldhunt.overlays.ExploredRoadOverlay
+NEW:
+
+
+=== LINE 187 StrReplace ===
+OLD:
+                mapViewRef.value?.post {
+                    ExploredRoadOverlay.remove(style)
+                    TreasureOverlay.remove(style)
+NEW:
+                mapViewRef.value?.post {
+                    TreasureOverlay.remove(style)
+
+=== LINE 187 StrReplace ===
+OLD:
+    GoldHuntExploredRoadsEffect(controller, goldHunt)
+    GoldHuntTreasureEffect(context, controller, goldHunt, map3dEnabled = is3d)
+NEW:
+    GoldHuntTreasureEffect(context, controller, goldHunt, map3dEnabled = is3d)
+
+=== LINE 187 StrReplace ===
+OLD:
+            if (zoom < GoldHuntConfig.AREA_DISCOVERY_MIN_ZOOM) {
+                showGoldHuntZoomAlert = true
+                return@mapTap
+            }
+            coroutineScope.launch {
+                val discovery = goldHunt.discoverAtMapLocation(
+                    latLng.latitude,
+                    latLng.longitude,
+                )
+                val message = when {
+                    discovery.creditsEarned > 0 ->
+                        context.getString(
+                            R.string.gold_hunt_discovery_credits,
+                            discovery.creditsEarned,
+                        )
+                    discovery.hadNewDiscovery ->
+                        context.getString(R.string.gold_hunt_discovery_recorded)
+                    !discovery.inPlayRegion ->
+                        context.getString(R.string.gold_hunt_discovery_outside_region)
+                    else ->
+                        context.getString(R.string.gold_hunt_discovery_already)
+                }
+                if (discovery.hadNewDiscovery || discovery.creditsEarned > 0 || !discovery.inPlayRegion) {
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                } else {
+                    controller.onMapPlaceTapped(latLng)
+                }
+            }
+        }
+NEW:
+            if (zoom < GoldHuntConfig.TREASURE_REVEAL_MIN_ZOOM) {
+                showGoldHuntZoomAlert = true
+                return@mapTap
+            }
+            controller.onMapPlaceTapped(latLng)
+        }
+
+=== LINE 193 StrReplace ===
+OLD:
+                    Text(text = stringResource(R.string.gold_hunt_area_zoom_required))
+NEW:
+                    Text(text = stringResource(R.string.gold_hunt_treasure_zoom_required))
+
+=== LINE 222 StrReplace ===
+OLD:
+import com.example.roadguideapp.goldhunt.ui.GoldHuntHud
+import com.example.roadguideapp.goldhunt.ui.GoldHuntMapButton
+import com.example.roadguideapp.goldhunt.ui.GoldHuntWorkflowAlertHost
+NEW:
+import com.example.roadguideapp.goldhunt.ui.GoldHuntHud
+import com.example.roadguideapp.goldhunt.ui.GoldHuntMapButton
+import com.example.roadguideapp.goldhunt.ui.GoldHuntModeFrame
+import com.example.roadguideapp.goldhunt.ui.GoldHuntWorkflowAlertHost
+
+=== LINE 222 StrReplace ===
+OLD:
+        GoldHuntHud(
+            goldHunt = goldHunt,
+            sheetTheme = sheetTheme,
+            bottomPadding = bottomChromePadding,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .zIndex(12f)
+                .statusBarsPadding(),
+        )
+NEW:
+        if (goldHunt.isActive) {
+            GoldHuntModeFrame(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(6f)
+                    .padding(bottom = bottomChromePadding),
+            )
+        }
+
+        GoldHuntHud(
+            goldHunt = goldHunt,
+            sheetTheme = sheetTheme,
+            bottomPadding = bottomChromePadding,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .zIndex(12f)
+                .statusBarsPadding(),
+        )
+
+=== LINE 261 StrReplace ===
+OLD:
+            val treasureValueLog = if (goldHunt.isActive) goldHunt.treasureValueLog else null
+            val treasureNumberLog = if (goldHunt.isActive) goldHunt.treasureNumberLog else null
+            val hasMapOverlayMetrics =
+                mapScaleRuler != null ||
+                    mapZoomGrade != null ||
+                    treasureValueLog != null ||
+                    treasureNumberLog != null
+NEW:
+            val showGoldHuntDebugLogs = false
+            val treasureValueLog =
+                if (goldHunt.isActive && showGoldHuntDebugLogs) goldHunt.treasureValueLog else null
+            val treasureNumberLog =
+                if (goldHunt.isActive && showGoldHuntDebugLogs) goldHunt.treasureNumberLog else null
+            val hasMapOverlayMetrics =
+                mapScaleRuler != null ||
+                    mapZoomGrade != null ||
+                    treasureValueLog != null ||
+                    treasureNumberLog != null
+
+=== LINE 261 StrReplace ===
+OLD:
+        GoldHuntHud(
+            goldHunt = goldHunt,
+            sheetTheme = sheetTheme,
+            bottomPadding = bottomChromePadding,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .zIndex(12f)
+                .statusBarsPadding(),
+        )
+NEW:
+        GoldHuntHud(
+            goldHunt = goldHunt,
+            sheetTheme = sheetTheme,
+            bottomPadding = bottomChromePadding,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(12f)
+                .statusBarsPadding()
+                .padding(top = 6.dp),
+        )
+
+=== LINE 263 StrReplace ===
+OLD:
+            val showGoldHuntDebugLogs = false
+            val treasureValueLog =
+                if (goldHunt.isActive && showGoldHuntDebugLogs) goldHunt.treasureValueLog else null
+            val treasureNumberLog =
+                if (goldHunt.isActive && showGoldHuntDebugLogs) goldHunt.treasureNumberLog else null
+NEW:
+            val treasureValueLog = if (goldHunt.isActive) null else goldHunt.treasureValueLog
+            val treasureNumberLog = if (goldHunt.isActive) null else goldHunt.treasureNumberLog
+
+=== LINE 264 StrReplace ===
+OLD:
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .zIndex(0.5f)
+                        .statusBarsPadding()
+                        .padding(start = 12.dp, top = 8.dp),
+                ) {
+NEW:
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .zIndex(0.5f)
+                        .statusBarsPadding()
+                        .padding(
+                            start = 12.dp,
+                            top = if (goldHunt.isActive) 72.dp else 8.dp,
+                        ),
+                ) {
+
+=== LINE 271 StrReplace ===
+OLD:
+import com.example.roadguideapp.goldhunt.ui.GoldHuntHud
+NEW:
+import com.example.roadguideapp.goldhunt.ui.GoldHuntHud
+import com.example.roadguideapp.goldhunt.ui.GoldHuntHudLayout
+
+=== LINE 271 StrReplace ===
+OLD:
+            val hasMapOverlayMetrics =
+                mapScaleRuler != null ||
+                    mapZoomGrade != null ||
+                    treasureValueLog != null ||
+                    treasureNumberLog != null
+            if (hasMapOverlayMetrics) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .zIndex(0.5f)
+                        .statusBarsPadding()
+                        .padding(
+                            start = 12.dp,
+                            top = if (goldHunt.isActive) 72.dp else 8.dp,
+                        ),
+                ) {
+                    var overlayTopGap = false
+                    mapScaleRuler?.let { scale ->
+                        MapScaleRuler(state = scale)
+                        overlayTopGap = true
+                    }
+                    mapZoomGrade?.let { grade ->
+                        MapZoomGradeDisplay(
+                            state = grade,
+                            modifier = Modifier.padding(top = if (overlayTopGap) 6.dp else 0.dp),
+                        )
+                        overlayTopGap = true
+                    }
+NEW:
+            val showZoomGradeOverlay = mapZoomGrade != null && !goldHunt.isActive
+            val hasMapOverlayMetrics =
+                mapScaleRuler != null ||
+                    showZoomGradeOverlay ||
+                    treasureValueLog != null ||
+                    treasureNumberLog != null
+            if (hasMapOverlayMetrics) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .zIndex(0.5f)
+                        .statusBarsPadding()
+                        .padding(
+                            start = 12.dp,
+                            top = if (goldHunt.isActive) {
+                                GoldHuntHudLayout.scaleRulerTopBelowScoreBar
+                            } else {
+                                8.dp
+                            },
+                        ),
+                ) {
+                    var overlayTopGap = false
+                    mapScaleRuler?.let { scale ->
+                        MapScaleRuler(state = scale)
+                        overlayTopGap = true
+                    }
+                    if (showZoomGradeOverlay) {
+                        mapZoomGrade?.let { grade ->
+                            MapZoomGradeDisplay(
+                                state = grade,
+                                modifier = Modifier.padding(top = if (overlayTopGap) 6.dp else 0.dp),
+                            )
+                            overlayTopGap = true
+                        }
+                    }
+
+=== LINE 271 StrReplace ===
+OLD:
+        GoldHuntHud(
+            goldHunt = goldHunt,
+            sheetTheme = sheetTheme,
+            bottomPadding = bottomChromePadding,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(12f)
+                .statusBarsPadding()
+                .padding(top = 6.dp),
+        )
+NEW:
+        GoldHuntHud(
+            goldHunt = goldHunt,
+            sheetTheme = sheetTheme,
+            bottomPadding = bottomChromePadding,
+            zoomGrade = if (goldHunt.isActive) mapZoomGrade else null,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(11f)
+                .statusBarsPadding()
+                .padding(top = GoldHuntHudLayout.scoreBarTopPadding),
+        )
+
+=== LINE 271 StrReplace ===
+OLD:
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .zIndex(10f)
+                    .statusBarsPadding()
+                    .padding(end = 12.dp, top = 8.dp),
+            )
+        }
+
+        if (showBottomMapChrome) {
+NEW:
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .zIndex(if (goldHunt.isActive) 13f else 10f)
+                    .statusBarsPadding()
+                    .padding(
+                        end = 12.dp,
+                        top = if (goldHunt.isActive) {
+                            GoldHuntHudLayout.scoreBarTopPadding
+                        } else {
+                            8.dp
+                        },
+                    ),
+            )
+        }
+
+        if (showBottomMapChrome) {
+
+=== LINE 281 StrReplace ===
+OLD:
+        GoldHuntHud(
+            goldHunt = goldHunt,
+            sheetTheme = sheetTheme,
+            bottomPadding = bottomChromePadding,
+            zoomGrade = if (goldHunt.isActive) mapZoomGrade else null,
+NEW:
+        GoldHuntHud(
+            goldHunt = goldHunt,
+            isDarkAppearance = isDarkAppearance,
+            bottomPadding = bottomChromePadding,
+            zoomGrade = if (goldHunt.isActive) mapZoomGrade else null,
+
+=== LINE 308 StrReplace ===
+OLD:
+            if (zoom >= GoldHuntConfig.TREASURE_REVEAL_MIN_ZOOM) {
+                val treasureSpec = TreasureMapPick.resolve(map, latLng)
+                if (treasureSpec != null) {
+                    coroutineScope.launch {
+                        when (val outcome = goldHunt.collectTreasureOnTap(treasureSpec)) {
+                            is TreasureCollectOutcome.Collected -> {
+                                val message = if (outcome.credits > 0) {
+                                    context.getString(
+                                        R.string.gold_hunt_treasure_collected,
+                                        outcome.credits,
+                                    )
+                                } else {
+                                    context.getString(R.string.gold_hunt_treasure_hint_collected)
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                            TreasureCollectOutcome.AlreadyCollected -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_treasure_already_collected),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            TreasureCollectOutcome.NotReady -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_treasure_not_ready),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    }
+                    return@mapTap
+                }
+            }
+            if (zoom < GoldHuntConfig.TREASURE_REVEAL_MIN_ZOOM) {
+                showGoldHuntZoomAlert = true
+                r
+NEW:
+            val treasureSpec = TreasureMapPick.resolve(map, latLng)
+            if (treasureSpec != null) {
+                if (zoom < GoldHuntConfig.TREASURE_COLLECT_MIN_ZOOM) {
+                    showGoldHuntZoomAlert = true
+                    return@mapTap
+                }
+                coroutineScope.launch {
+                    when (val outcome = goldHunt.collectTreasureOnTap(treasureSpec)) {
+                        is TreasureCollectOutcome.Collected -> {
+                            val message = if (outcome.credits > 0) {
+                                context.getString(
+                                    R.string.gold_hunt_treasure_collected,
+                                    outcome.credits,
+                                )
+                            } else {
+                                context.getString(R.string.gold_hunt_treasure_hint_collected)
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                        TreasureCollectOutcome.AlreadyCollected -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_treasure_already_collected),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        TreasureCollectOutcome.NotReady -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_treasure_not_ready),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                }
+                return@mapTap
+            }
+            controller.onMapPlaceTapped(latLng)
+
+=== LINE 327 StrReplace ===
+OLD:
+            val zoom = map.cameraPosition.zoom.toDouble()
+            if (zoom >= GoldHuntConfig.SECRET_REVEAL_MIN_ZOOM) {
+                val secretSpec = SecretPlaceMapPick.resolve(map, latLng)
+                if (secretSpec != null) {
+                    coroutineScope.launch {
+                        when (val outcome = goldHunt.collectSecretPlaceOnTap(secretSpec, zoom)) {
+                            is SecretPlaceCollectOutcome.Discovered -> {
+                                val message = context.getString(
+                                    R.string.gold_hunt_secret_discovered,
+                                    outcome.displayName,
+                                    outcome.credits,
+                                )
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                            SecretPlaceCollectOutcome.AlreadyDiscovered -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_secret_already),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            SecretPlaceCollectOutcome.NotRevealed -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_secret_not_revealed),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            SecretPlaceCollectOutcome.NotReady -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_treasure_not_ready),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                 
+NEW:
+            val zoom = map.cameraPosition.zoom.toDouble()
+            val secretSpec = SecretPlaceMapPick.resolve(map, latLng)
+            if (secretSpec != null) {
+                if (zoom < GoldHuntConfig.SECRET_COLLECT_MIN_ZOOM) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.gold_hunt_secret_zoom_required),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@mapTap
+                }
+                coroutineScope.launch {
+                    when (val outcome = goldHunt.collectSecretPlaceOnTap(secretSpec, zoom)) {
+                        is SecretPlaceCollectOutcome.Discovered -> {
+                            val message = context.getString(
+                                R.string.gold_hunt_secret_discovered,
+                                outcome.displayName,
+                                outcome.credits,
+                            )
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                        SecretPlaceCollectOutcome.AlreadyDiscovered -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_secret_already),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        SecretPlaceCollectOutcome.NotRevealed -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_secret_not_revealed),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        SecretPlaceCollectOutcome.NotReady -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_treasure_not_ready),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                }
+                return@mapTap
+            }
+
+=== LINE 333 StrReplace ===
+OLD:
+            val treasureSpec = TreasureMapPick.resolve(map, latLng)
+            if (treasureSpec != null) {
+                if (zoom < GoldHuntConfig.TREASURE_COLLECT_MIN_ZOOM) {
+NEW:
+            if (zoom >= GoldHuntConfig.TREASURE_DISPLAY_MIN_ZOOM) {
+                val treasureSpec = TreasureMapPick.resolve(map, latLng)
+                if (treasureSpec != null) {
+
+=== LINE 334 StrReplace ===
+OLD:
+            val treasureSpec = TreasureMapPick.resolve(map, latLng)
+            if (treasureSpec != null) {
+                if (zoom < GoldHuntConfig.TREASURE_COLLECT_MIN_ZOOM) {
+                    showGoldHuntZoomAlert = true
+                    return@mapTap
+                }
+                coroutineScope.launch {
+                    when (val outcome = goldHunt.collectTreasureOnTap(treasureSpec)) {
+                        is TreasureCollectOutcome.Collected -> {
+                            val message = if (outcome.credits > 0) {
+                                context.getString(
+                                    R.string.gold_hunt_treasure_collected,
+                                    outcome.credits,
+                                )
+                            } else {
+                                context.getString(R.string.gold_hunt_treasure_hint_collected)
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                        TreasureCollectOutcome.AlreadyCollected -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_treasure_already_collected),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        TreasureCollectOutcome.NotReady -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_treasure_not_ready),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                }
+                return@mapTap
+            }
+            controller.onMapPlaceTapped(latLng)
+NEW:
+            if (zoom >= GoldHuntConfig.TREASURE_DISPLAY_MIN_ZOOM) {
+                val treasureSpec = TreasureMapPick.resolve(map, latLng)
+                if (treasureSpec != null) {
+                    coroutineScope.launch {
+                        when (val outcome = goldHunt.collectTreasureOnTap(treasureSpec)) {
+                            is TreasureCollectOutcome.Collected -> {
+                                val message = if (outcome.credits > 0) {
+                                    context.getString(
+                                        R.string.gold_hunt_treasure_collected,
+                                        outcome.credits,
+                                    )
+                                } else {
+                                    context.getString(R.string.gold_hunt_treasure_hint_collected)
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                            TreasureCollectOutcome.AlreadyCollected -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_treasure_already_collected),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            TreasureCollectOutcome.NotReady -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_treasure_not_ready),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    }
+                    return@mapTap
+                }
+            }
+            if (zoom < GoldHuntConfig.TREASURE_DISPLAY_MIN_ZOOM) {
+                showGoldHuntZoomAlert = true
+                return@mapTap
+            }
+            controller.onMapPlaceTapped(latLng)
+
+=== LINE 336 StrReplace ===
+OLD:
+            if (zoom >= GoldHuntConfig.TREASURE_DISPLAY_MIN_ZOOM) {
+                val treasureSpec = TreasureMapPick.resolve(map, latLng)
+                if (treasureSpec != null) {
+                    showGoldHuntZoomAlert = true
+                    return@mapTap
+                }
+                coroutineScope.launch {
+                    when (val outcome = goldHunt.collectTreasureOnTap(treasureSpec)) {
+                        is TreasureCollectOutcome.Collected -> {
+                            val message = if (outcome.credits > 0) {
+                                context.getString(
+                                    R.string.gold_hunt_treasure_collected,
+                                    outcome.credits,
+                                )
+                            } else {
+                                context.getString(R.string.gold_hunt_treasure_hint_collected)
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                        TreasureCollectOutcome.AlreadyCollected -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_treasure_already_collected),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        TreasureCollectOutcome.NotReady -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_treasure_not_ready),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                }
+                return@mapTap
+            }
+            controller.onMapPlaceTapped(latLng)
+NEW:
+            if (zoom >= GoldHuntConfig.TREASURE_DISPLAY_MIN_ZOOM) {
+                val treasureSpec = TreasureMapPick.resolve(map, latLng)
+                if (treasureSpec != null) {
+                    coroutineScope.launch {
+                        when (val outcome = goldHunt.collectTreasureOnTap(treasureSpec)) {
+                            is TreasureCollectOutcome.Collected -> {
+                                val message = if (outcome.credits > 0) {
+                                    context.getString(
+                                        R.string.gold_hunt_treasure_collected,
+                                        outcome.credits,
+                                    )
+                                } else {
+                                    context.getString(R.string.gold_hunt_treasure_hint_collected)
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                            TreasureCollectOutcome.AlreadyCollected -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_treasure_already_collected),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            TreasureCollectOutcome.NotReady -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_treasure_not_ready),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    }
+                    return@mapTap
+                }
+            } else {
+                showGoldHuntZoomAlert = true
+                return@mapTap
+            }
+            controller.onMapPlaceTapped(latLng)
+
+=== LINE 342 StrReplace ===
+OLD:
+            val zoom = map.cameraPosition.zoom.toDouble()
+            val secretSpec = SecretPlaceMapPick.resolve(map, latLng)
+            if (secretSpec != null) {
+                if (zoom < GoldHuntConfig.SECRET_COLLECT_MIN_ZOOM) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.gold_hunt_secret_zoom_required),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@mapTap
+                }
+                coroutineScope.launch {
+                    when (val outcome = goldHunt.collectSecretPlaceOnTap(secretSpec, zoom)) {
+NEW:
+            val zoom = map.cameraPosition.zoom.toDouble()
+            if (zoom >= GoldHuntConfig.SECRET_DISPLAY_MIN_ZOOM) {
+                val secretSpec = SecretPlaceMapPick.resolve(map, latLng)
+                if (secretSpec != null) {
+                    coroutineScope.launch {
+                        when (val outcome = goldHunt.collectSecretPlaceOnTap(secretSpec, zoom)) {
+
+=== LINE 342 StrReplace ===
+OLD:
+                        }
+                    }
+                }
+                return@mapTap
+            }
+            if (zoom >= GoldHuntConfig.TREASURE_DISPLAY_MIN_ZOOM) {
+NEW:
+                        }
+                    }
+                    }
+                    return@mapTap
+                }
+            }
+            if (zoom >= GoldHuntConfig.TREASURE_DISPLAY_MIN_ZOOM) {
+
+=== LINE 344 StrReplace ===
+OLD:
+                    coroutineScope.launch {
+                        when (val outcome = goldHunt.collectSecretPlaceOnTap(secretSpec, zoom)) {
+                        is SecretPlaceCollectOutcome.Discovered -> {
+                            val message = context.getString(
+                                R.string.gold_hunt_secret_discovered,
+                                outcome.displayName,
+                                outcome.credits,
+                            )
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                        SecretPlaceCollectOutcome.AlreadyDiscovered -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_secret_already),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        SecretPlaceCollectOutcome.NotRevealed -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_secret_not_revealed),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        SecretPlaceCollectOutcome.NotReady -> {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.gold_hunt_treasure_not_ready),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                    }
+                    return@mapTap
+NEW:
+                    coroutineScope.launch {
+                        when (val outcome = goldHunt.collectSecretPlaceOnTap(secretSpec, zoom)) {
+                            is SecretPlaceCollectOutcome.Discovered -> {
+                                val message = context.getString(
+                                    R.string.gold_hunt_secret_discovered,
+                                    outcome.displayName,
+                                    outcome.credits,
+                                )
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                            SecretPlaceCollectOutcome.AlreadyDiscovered -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_secret_already),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            SecretPlaceCollectOutcome.NotRevealed -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_secret_not_revealed),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            SecretPlaceCollectOutcome.NotReady -> {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.gold_hunt_treasure_not_ready),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    }
+                    return@mapTap
+
+=== LINE 355 StrReplace ===
+OLD:
+                                    fun publishMapOverlayPositions() {
+                                        val needsOverlay = activeDirectionsState.value != null ||
+                                            (
+                                                activeNearbyCategoryState.value != null &&
+                                                    nearbyOverlayResultsState.value.isNotEmpty()
+                                                )
+                                        if (!needsOverlay) return
+                                        mapView.post { controller.mapOverlayCameraTick++ }
+                                    }
+NEW:
+                                    fun publishMapOverlayPositions() {
+                                        val needsOverlay = activeDirectionsState.value != null ||
+                                            (
+                                                activeNearbyCategoryState.value != null &&
+                                                    nearbyOverlayResultsState.value.isNotEmpty()
+                                                )
+                                        val goldHuntActive = goldHuntActiveState.value
+                                        if (!needsOverlay && !goldHuntActive) return
+                                        mapView.post { controller.mapOverlayCameraTick++ }
+                                    }
+                                    fun hideGoldHuntMarkersBelowMinZoom() {
+                                        if (!goldHuntActiveState.value) return
+                                        val style = controller.mapRuntime?.second ?: return
+                                        val zoom = map.cameraPosition.zoom.toDouble()
+                                        if (!com.example.roadguideapp.goldhunt.GoldHuntMapZoom.treasuresVisibleAt(zoom)) {
+                                            TreasureOverlay.remove(style)
+                                            mapView.post {
+                                                goldHunt.updateTreasureValueLog(
+                                                    com.example.roadguideapp.goldhunt.treasure.TreasureViewportLogBuilder
+                                                        .fromTreasures(emptyList(), zoom),
+                                                )
+                                                goldHunt.updateTreasureNumberLog(
+                                                    com.example.roadguideapp.goldhunt.treasure.TreasureViewportNumberLogBuilder
+                                                        .fromTreasures(emptyList(), zoom),
+                                                )
+                                            }
+                                        }
+                                        if (!com.example.roadguideapp.goldhunt.GoldHuntMapZoom.secretsVisibleAt(zoom)) {
+                                            SecretPlaceOverlay.remove(style)
+                                        }
+                                    }
+
+=== LINE 355 StrReplace ===
+OLD:
+                                    map.addOnCameraMoveListener {
+                                        publishBearing()
+                                        publishScaleRuler()
+                                        publishZoomGrade()
+                                        publishMapOverlayPositions()
+                                        syncExtrusionDuring3d(suppressForCameraMotion = true)
+                                    }
+NEW:
+                                    map.addOnCameraMoveListener {
+                                        publishBearing()
+                                        publishScaleRuler()
+                                        publishZoomGrade()
+                                        hideGoldHuntMarkersBelowMinZoom()
+                                        publishMapOverlayPositions()
+                                        syncExtrusionDuring3d(suppressForCameraMotion = true)
+                                    }
+
+=== LINE 355 StrReplace ===
+OLD:
+                                    map.addOnCameraIdleListener {
+                                        publishBearing()
+                                        publishScaleRuler()
+                                        publishZoomGrade()
+                                        publishMapOverlayPositions()
+NEW:
+                                    map.addOnCameraIdleListener {
+                                        publishBearing()
+                                        publishScaleRuler()
+                                        publishZoomGrade()
+                                        hideGoldHuntMarkersBelowMinZoom()
+                                        publishMapOverlayPositions()
+
+=== LINE 357 StrReplace ===
+OLD:
+import com.example.roadguideapp.goldhunt.GoldHuntConfig
+import com.example.roadguideapp.goldhunt.GoldHuntController
+import com.example.roadguideapp.goldhunt.treasure.TreasureCollectOutcome
+import com.example.roadguideapp.goldhunt.treasure.TreasureMapPick
+NEW:
+import com.example.roadguideapp.goldhunt.GoldHuntConfig
+import com.example.roadguideapp.goldhunt.GoldHuntController
+import com.example.roadguideapp.goldhunt.GoldHuntMapZoom
+import com.example.roadguideapp.goldhunt.treasure.TreasureCollectOutcome
+import com.example.roadguideapp.goldhunt.treasure.TreasureMapPick
+import com.example.roadguideapp.goldhunt.treasure.TreasureViewportLogBuilder
+import com.example.roadguideapp.goldhunt.treasure.TreasureViewportNumberLogBuilder
+
+=== LINE 357 StrReplace ===
+OLD:
+                                        if (!com.example.roadguideapp.goldhunt.GoldHuntMapZoom.treasuresVisibleAt(zoom)) {
+                                            TreasureOverlay.remove(style)
+                                            mapView.post {
+                                                goldHunt.updateTreasureValueLog(
+                                                    com.example.roadguideapp.goldhunt.treasure.TreasureViewportLogBuilder
+                                                        .fromTreasures(emptyList(), zoom),
+                                                )
+                                                goldHunt.updateTreasureNumberLog(
+                                                    com.example.roadguideapp.goldhunt.treasure.TreasureViewportNumberLogBuilder
+                                                        .fromTreasures(emptyList(), zoom),
+                                                )
+                                            }
+                                        }
+                                        if (!com.example.roadguideapp.goldhunt.GoldHuntMapZoom.secretsVisibleAt(zoom)) {
+NEW:
+                                        if (!GoldHuntMapZoom.treasuresVisibleAt(zoom)) {
+                                            TreasureOverlay.remove(style)
+                                            mapView.post {
+                                                goldHunt.updateTreasureValueLog(
+                                                    TreasureViewportLogBuilder.fromTreasures(emptyList(), zoom),
+                                                )
+                                                goldHunt.updateTreasureNumberLog(
+                                                    TreasureViewportNumberLogBuilder.fromTreasures(emptyList(), zoom),
+                                                )
+                                            }
+                                        }
+                                        if (!GoldHuntMapZoom.secretsVisibleAt(zoom)) {
+
+=== LINE 357 StrReplace ===
+OLD:
+            if (zoom >= GoldHuntConfig.SECRET_DISPLAY_MIN_ZOOM) {
+NEW:
+            if (GoldHuntMapZoom.secretsVisibleAt(zoom)) {
+
+=== LINE 357 StrReplace ===
+OLD:
+            if (zoom >= GoldHuntConfig.TREASURE_DISPLAY_MIN_ZOOM) {
+NEW:
+            if (GoldHuntMapZoom.treasuresVisibleAt(zoom)) {
+
+=== LINE 367 StrReplace ===
+OLD:
+import androidx.activity.compose.rememberLauncherForActivityResult
+NEW:
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+
+=== LINE 367 StrReplace ===
+OLD:
+    val goldHunt = remember { GoldHuntController(context) }
+    val goldHuntActiveState = rememberUpdatedState(goldHunt.isActive)
+NEW:
+    val goldHunt = remember { GoldHuntController(context) }
+    val goldHuntActiveState = rememberUpdatedState(goldHunt.isActive)
+    val hostActivity = context as ComponentActivity
+    DisposableEffect(lifecycle, goldHunt) {
+        val observer = object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) {
+                if (hostActivity.isFinishing) {
+                    goldHunt.shutdown()
+                }
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            if (!hostActivity.isChangingConfigurations) {
+                goldHunt.shutdown()
+            }
+        }
+    }
+
+=== LINE 376 StrReplace ===
+OLD:
+                            is SecretPlaceCollectOutcome.Discovered -> {
+                                val message = context.getString(
+                                    R.string.gold_hunt_secret_discovered,
+                                    outcome.displayName,
+                                    outcome.credits,
+                                )
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+NEW:
+                            is SecretPlaceCollectOutcome.Discovered -> {
+                                val message = context.getString(
+                                    R.string.gold_hunt_secret_discovered_toast,
+                                    outcome.displayName,
+                                )
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+
