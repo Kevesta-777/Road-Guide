@@ -14,7 +14,12 @@ internal object OfflineGraphStorage {
             .getString(KEY_ACTIVE_PATH, null)
             ?: return null
         val dir = File(path)
-        return if (dir.isDirectory && GraphBundleImporter.isValidGraphCache(dir)) path else null
+        return if (dir.isDirectory && GraphBundleImporter.isValidGraphCache(dir)) {
+            path
+        } else {
+            clearActiveGraph(context)
+            null
+        }
     }
 
     fun saveActiveGraphPath(context: Context, path: String) {

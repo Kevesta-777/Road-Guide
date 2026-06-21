@@ -15,11 +15,35 @@ internal fun AppleMapSheet.isSyncedStackSheet(): Boolean = when (this) {
     -> true
     is AppleMapSheet.AddStop -> false
     is AppleMapSheet.UserProfile -> false
+    is AppleMapSheet.ExplorerProfile -> false
+    is AppleMapSheet.TreasureEncyclopedia -> false
+    is AppleMapSheet.ClusterEncyclopedia -> false
+    is AppleMapSheet.SecretPlaceCollectionBook -> false
+    is AppleMapSheet.PanoramaHuntJournal -> false
+    is AppleMapSheet.SeasonalEventCollectionBook -> false
+    is AppleMapSheet.AchievementJournal -> false
+    is AppleMapSheet.AchievementBadges -> false
+    is AppleMapSheet.AchievementTitles -> false
+    is AppleMapSheet.AchievementCollectionBook -> false
+    is AppleMapSheet.LegendaryRelicJournal -> false
+    is AppleMapSheet.LegendaryRelicShowcase -> false
 }
 
 /** Sheets that must render a solid surface instead of the map blur material. */
 internal fun AppleMapSheet.usesOpaqueSheetSurface(): Boolean = when (this) {
     is AppleMapSheet.UserProfile,
+    is AppleMapSheet.ExplorerProfile,
+    is AppleMapSheet.TreasureEncyclopedia,
+    is AppleMapSheet.ClusterEncyclopedia,
+    is AppleMapSheet.SecretPlaceCollectionBook,
+    is AppleMapSheet.PanoramaHuntJournal,
+    is AppleMapSheet.SeasonalEventCollectionBook,
+    is AppleMapSheet.AchievementJournal,
+    is AppleMapSheet.AchievementBadges,
+    is AppleMapSheet.AchievementTitles,
+    is AppleMapSheet.AchievementCollectionBook,
+    is AppleMapSheet.LegendaryRelicJournal,
+    is AppleMapSheet.LegendaryRelicShowcase,
     is AppleMapSheet.AddStop,
     -> true
     else -> false
@@ -75,6 +99,66 @@ internal sealed class AppleMapSheet {
         val selectedBusinessPoiId: String? = null,
     ) : AppleMapSheet() {
         override val stackId: String = "user_profile"
+    }
+
+    /** Gold Hunt explorer level, rank, XP, and discovery statistics. */
+    data object ExplorerProfile : AppleMapSheet() {
+        override val stackId: String = "explorer_profile"
+    }
+
+    /** Catalog of discovered and missing treasures. */
+    data object TreasureEncyclopedia : AppleMapSheet() {
+        override val stackId: String = "treasure_encyclopedia"
+    }
+
+    /** Catalog of discovered, completed, and missing treasure clusters. */
+    data object ClusterEncyclopedia : AppleMapSheet() {
+        override val stackId: String = "cluster_encyclopedia"
+    }
+
+    /** Catalog of discovered, completed, and missing secret place categories. */
+    data object SecretPlaceCollectionBook : AppleMapSheet() {
+        override val stackId: String = "secret_place_collection_book"
+    }
+
+    /** Catalog of discovered, completed, and missing panorama hunt families. */
+    data object PanoramaHuntJournal : AppleMapSheet() {
+        override val stackId: String = "panorama_hunt_journal"
+    }
+
+    /** Catalog of participated and completed seasonal event cycles. */
+    data object SeasonalEventCollectionBook : AppleMapSheet() {
+        override val stackId: String = "seasonal_event_collection_book"
+    }
+
+    /** Unified achievement journal with completion, lock, and hidden states. */
+    data object AchievementJournal : AppleMapSheet() {
+        override val stackId: String = "achievement_journal"
+    }
+
+    /** Achievement badge collection unlocked from completed achievements. */
+    data object AchievementBadges : AppleMapSheet() {
+        override val stackId: String = "achievement_badges"
+    }
+
+    /** Achievement title collection with single active title selection. */
+    data object AchievementTitles : AppleMapSheet() {
+        override val stackId: String = "achievement_titles"
+    }
+
+    /** Unified achievement collection book with stats, badges, titles, and relic hooks. */
+    data object AchievementCollectionBook : AppleMapSheet() {
+        override val stackId: String = "achievement_collection_book"
+    }
+
+    /** Catalog of discovered, in-progress, and missing legendary relics. */
+    data object LegendaryRelicJournal : AppleMapSheet() {
+        override val stackId: String = "legendary_relic_journal"
+    }
+
+    /** Hall of completed legendary relics with earned badges and titles. */
+    data object LegendaryRelicShowcase : AppleMapSheet() {
+        override val stackId: String = "legendary_relic_showcase"
     }
 
     /** Nearby category results overlay; dismiss returns to the sheet underneath. */

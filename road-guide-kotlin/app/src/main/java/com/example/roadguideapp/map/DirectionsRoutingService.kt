@@ -335,4 +335,14 @@ internal object DirectionsRoutingService {
         DirectionsTravelMode.Bicycle -> 4.17
         DirectionsTravelMode.Drive -> 22.22
     }
+
+    /**
+     * Gold Hunt needs road snapping (offline graph) or an online Valhalla connection.
+     * Probes Valhalla when no offline graph is configured.
+     */
+    suspend fun goldHuntRoutingAvailable(context: Context): Boolean {
+        if (OfflineGraphEngine.isLoaded() || OfflineGraphRouter.isReady()) return true
+        if (hasSavedGraph(context)) return true
+        return ValhallaReachability.probeNow()
+    }
 }

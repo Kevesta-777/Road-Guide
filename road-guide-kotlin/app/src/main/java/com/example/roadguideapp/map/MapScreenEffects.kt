@@ -142,9 +142,10 @@ internal fun MapTileserverRecoveryEffect(
 @Composable
 internal fun MapSearchAutocompleteEffect(
     controller: MapScreenController,
+    searchEnabled: Boolean = true,
 ) {
-    LaunchedEffect(controller.searchQuery, controller.mapLibreMap, controller.isSearchActive, controller.activeNearbyCategory) {
-        if (!controller.isSearchActive || controller.activeNearbyCategory != null) return@LaunchedEffect
+    LaunchedEffect(controller.searchQuery, controller.mapLibreMap, controller.isSearchActive, controller.activeNearbyCategory, searchEnabled) {
+        if (!searchEnabled || !controller.isSearchActive || controller.activeNearbyCategory != null) return@LaunchedEffect
         val query = controller.searchQuery.trim()
         if (query.isEmpty()) {
             controller.searchSuggestions = emptyList()

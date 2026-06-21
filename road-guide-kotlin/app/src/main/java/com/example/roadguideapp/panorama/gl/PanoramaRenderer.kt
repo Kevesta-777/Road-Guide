@@ -8,6 +8,7 @@ import android.opengl.Matrix
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import com.example.roadguideapp.panorama.interaction.PanoramaViewState
 import java.nio.ShortBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
@@ -16,6 +17,8 @@ import kotlin.math.max
 class PanoramaRenderer : GLSurfaceView.Renderer {
 
     private var viewportAspect = 1f
+    private var viewportWidth = 0
+    private var viewportHeight = 0
 
     private val projectionMatrix = FloatArray(16)
     private val viewMatrix = FloatArray(16)
@@ -64,6 +67,15 @@ class PanoramaRenderer : GLSurfaceView.Renderer {
         pendingBitmap = bitmap
     }
 
+    fun viewState(): PanoramaViewState = PanoramaViewState(
+        yaw = yaw,
+        pitch = pitch,
+        fieldOfView = fieldOfView,
+        viewportAspect = viewportAspect,
+        viewportWidth = viewportWidth,
+        viewportHeight = viewportHeight,
+    )
+
     override fun onSurfaceCreated(unused: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -89,6 +101,8 @@ class PanoramaRenderer : GLSurfaceView.Renderer {
 
     override fun onSurfaceChanged(unused: GL10?, width: Int, height: Int) {
         GLES20.glViewport(0, 0, width, height)
+        viewportWidth = width
+        viewportHeight = height
         viewportAspect = width.toFloat() / max(height, 1)
         updateProjectionMatrix()
     }
