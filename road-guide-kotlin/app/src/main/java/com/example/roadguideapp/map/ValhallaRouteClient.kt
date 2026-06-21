@@ -1,5 +1,6 @@
 package com.example.roadguideapp.map
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -17,6 +18,7 @@ import java.net.URLEncoder
  */
 internal object ValhallaRouteClient {
 
+    private const val TAG = "ValhallaRouteClient"
     private const val POLYLINE_PRECISION = 6
 
     suspend fun fetchRoute(
@@ -40,9 +42,13 @@ internal object ValhallaRouteClient {
             } else {
                 conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
             }
-            if (code !in 200..299) return@withContext null
+            if (code !in 200..299) {
+                Log.w(TAG, "Valhalla /route HTTP $code: ${body.take(200)}")
+                return@withContext null
+            }
             parseRouteResponse(body)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Valhalla /route request failed", e)
             null
         } finally {
             conn.disconnect()

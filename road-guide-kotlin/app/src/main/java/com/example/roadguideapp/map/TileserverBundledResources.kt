@@ -71,10 +71,12 @@ internal object TileserverBundledResources {
                     "$MAP_ASSET_DIR/$SPRITE_BASENAME@2x.png",
                     File(root, "$SPRITE_BASENAME@2x.png"),
                 )
-                val spriteJson = File(root, "$SPRITE_BASENAME.json")
-                if (spriteJson.isFile) {
-                    spriteJson.copyTo(File(root, "$SPRITE_BASENAME@2x.json"), overwrite = true)
-                }
+                copyAssetIfPresent(
+                    appContext,
+                    "$MAP_ASSET_DIR/$SPRITE_BASENAME@2x.json",
+                    File(root, "$SPRITE_BASENAME@2x.json"),
+                )
+                sanitizeRetinaSpriteFiles(root)
                 materializeFontTree(appContext, root)
                 File(root, ASSET_PACK_MARKER).writeText("ok")
                 Log.i(TAG, "Materialized bundled sprites/glyphs at ${root.absolutePath}")
@@ -87,6 +89,7 @@ internal object TileserverBundledResources {
 
     fun prefetchForStyle(context: Context, tileserverOrigin: String, styleJson: String) {
         val origin = tileserverOrigin.trimEnd('/')
+        purgeInvalidPrefetch(context, origin)
         val root = prefetchRoot(context, origin)
         root.mkdirs()
         runCatching { prefetchSprites(origin, root) }
@@ -226,6 +229,7 @@ internal object TileserverBundledResources {
     }
 
     private fun readBundledHttpResourceBytes(context: Context, url: HttpUrl): ByteArray? {
+        if (!MapStyleSession.allowBundledSpriteFallback) return null
         val assetPath = assetPathForTileserverHttpUrl(url) ?: return null
         readAssetBytes(context, assetPath)?.let { return it }
         ensureAssetPackMaterialized(context)
@@ -324,11 +328,22 @@ internal object TileserverBundledResources {
     }
 
     internal fun isValidSpriteDirectory(root: File): Boolean {
+        sanitizeRetinaSpriteFiles(root)
         val json = File(root, "$SPRITE_BASENAME.json")
         val png = File(root, "$SPRITE_BASENAME.png")
         if (!json.isFile || !png.isFile) return false
         if (!isPngFile(png)) return false
-        return isValidSpriteJson(json)
+        if (!isValidSpriteJson(json)) return false
+        val retinaJson = File(root, "$SPRITE_BASENAME@2x.json")
+        val retinaPng = File(root, "$SPRITE_BASENAME@2x.png")
+        if (!retinaJson.isFile && !retinaPng.isFile) return true
+        if (!retinaJson.isFile || !retinaPng.isFile) return false
+        if (!isPngFile(retinaPng) || !isValidSpriteJson(retinaJson)) return false
+        if (filesContentEqual(json, retinaJson)) {
+            sanitizeRetinaSpriteFiles(root)
+            return true
+        }
+        return true
     }
 
     private fun isValidSpriteJson(file: File): Boolean {
@@ -425,10 +440,42 @@ internal object TileserverBundledResources {
         downloadToFile("$remoteBase.png", File(root, "$SPRITE_BASENAME.png"))
         downloadToFile("$remoteBase@2x.json", File(root, "$SPRITE_BASENAME@2x.json"))
         downloadToFile("$remoteBase@2x.png", File(root, "$SPRITE_BASENAME@2x.png"))
-        val retinaJson = File(root, "$SPRITE_BASENAME@2x.json")
-        if (!retinaJson.isFile) {
-            File(root, "$SPRITE_BASENAME.json").takeIf { it.isFile }?.copyTo(retinaJson, overwrite = true)
+        sanitizeRetinaSpriteFiles(root)
+    }
+
+    /**
+     * MapLibre on high-DPI devices loads `sprites@2x.*`. A 1x-json copy paired with a retina PNG
+     * samples the wrong atlas regions and breaks POI icons.
+     */
+    internal fun sanitizeRetinaSpriteFiles(root: File) {
+        val json1x = File(root, "$SPRITE_BASENAME.json")
+        val json2x = File(root, "$SPRITE_BASENAME@2x.json")
+        val png2x = File(root, "$SPRITE_BASENAME@2x.png")
+        val has2xJson = json2x.isFile
+        val has2xPng = png2x.isFile && isPngFile(png2x)
+
+        if (has2xJson != has2xPng) {
+            if (has2xJson) json2x.delete()
+            if (png2x.isFile) png2x.delete()
+            return
         }
+        if (!has2xJson) return
+
+        if (!isValidSpriteJson(json2x)) {
+            json2x.delete()
+            png2x.delete()
+            return
+        }
+        if (json1x.isFile && filesContentEqual(json1x, json2x)) {
+            json2x.delete()
+            png2x.delete()
+        }
+    }
+
+    private fun filesContentEqual(left: File, right: File): Boolean {
+        if (!left.isFile || !right.isFile) return false
+        if (left.length() != right.length()) return false
+        return runCatching { left.readBytes().contentEquals(right.readBytes()) }.getOrDefault(false)
     }
 
     private fun prefetchGlyphs(origin: String, root: File, fontStacks: List<String>) {

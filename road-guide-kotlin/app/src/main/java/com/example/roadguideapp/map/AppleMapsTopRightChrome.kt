@@ -37,6 +37,7 @@ internal fun AppleMapsTopRightChrome(
     onToggle3dClick: () -> Unit,
     onCompassClick: () -> Unit,
     onCompassBearingDrag: (Float) -> Unit,
+    onCompassBearingDragEnd: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -130,6 +131,7 @@ internal fun AppleMapsTopRightChrome(
                 mapBearingDegrees = mapBearingDegrees,
                 onClick = onCompassClick,
                 onBearingDragDegrees = onCompassBearingDrag,
+                onBearingDragEnd = onCompassBearingDragEnd,
                 compassContentDescription = stringResource(R.string.apple_compass),
             )
         }

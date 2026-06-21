@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -259,15 +258,18 @@ fun MapLibreMbTilesMap(
     }
 
     var appearanceClockTick by remember { mutableIntStateOf(0) }
+    var appearanceManuallyOverridden by remember { mutableStateOf(false) }
     var isDarkAppearance by remember {
         mutableStateOf(MapTimeOfDay.fromSystemLocalClock().isDarkAppearance())
     }
-    val timeOfDay = remember(isDarkAppearance, appearanceClockTick) {
+    val timeOfDay = remember(appearanceManuallyOverridden, isDarkAppearance, appearanceClockTick) {
         resolveMapTimeOfDay(
             clock = MapTimeOfDay.fromSystemLocalClock(),
+            appearanceManuallyOverridden = appearanceManuallyOverridden,
             isDarkAppearance = isDarkAppearance,
         )
     }
+    val effectiveDarkAppearance = timeOfDay.isDarkAppearance()
     val sheetTheme = remember(timeOfDay) { appleMapsSheetTheme(timeOfDay) }
 
     var is3d by remember { mutableStateOf(false) }
@@ -374,6 +376,7 @@ fun MapLibreMbTilesMap(
     var graphImportStatusMessage by remember { mutableStateOf("") }
     var graphImportProgressPercent by remember { mutableStateOf<Int?>(null) }
     var offlineGraphLoaded by remember { mutableStateOf(false) }
+    val preferOfflineGraph = controller.mapStyleMode != ResolvedMapStyle.Mode.Online
     var activeRouteResult by remember { mutableStateOf<DirectionsRouteResult?>(null) }
     var activeRouteSource by remember { mutableStateOf<DirectionsRouteSource?>(null) }
     var isRouteCalculating by remember { mutableStateOf(false) }
@@ -399,14 +402,25 @@ fun MapLibreMbTilesMap(
         controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
     }
 
+    val requestOfflineGraphImport: () -> Unit = {
+        if (!OfflineAuthStore.isSessionActive(context)) {
+            authDestination = AuthDestination.SignIn
+        } else {
+            showOfflineGraphImportAlert = true
+        }
+    }
+
     val onAddStopRequested: () -> Unit = {
         clearActiveRouteOverlay()
         sheetStack.popAddStopOverlays()
-        val offlineReady = offlineGraphLoaded && OfflineGraphEngine.isLoaded()
-        if (offlineReady) {
-            sheetStack.push(AppleMapSheet.AddStop)
-        } else {
-            showOfflineRoutingRequiredAlert = true
+        when {
+            OfflineGraphEngine.isLoaded() -> {
+                offlineGraphLoaded = true
+                sheetStack.push(AppleMapSheet.AddStop)
+            }
+            graphImportInProgress || graphRestoreInProgress -> Unit
+            DirectionsRoutingService.hasSavedGraph(context) -> Unit
+            else -> requestOfflineGraphImport()
         }
     }
 
@@ -442,12 +456,15 @@ fun MapLibreMbTilesMap(
                             navCameraHolder?.follow(displayFrame)
                         }
                         DirectionsNavigationFrameResolver.syncNavigationVisuals(
+                            context = context,
                             style = style,
                             route = routeLine,
                             frame = displayFrame,
                             origin = tripOrigin,
                             stops = tripStops,
                             valhallaRoute = route,
+                            travelMode = directions.travelMode,
+                            isDarkAppearance = effectiveDarkAppearance,
                         )
                         controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
                     }
@@ -516,6 +533,8 @@ fun MapLibreMbTilesMap(
                     stops = tripStops,
                     valhallaRoute = route,
                     revealProgress = 1f,
+                    travelMode = directions.travelMode,
+                    isDarkAppearance = effectiveDarkAppearance,
                 )
             }
         }
@@ -539,6 +558,13 @@ fun MapLibreMbTilesMap(
         is3d = true
         sheetStack.updateAllSyncedSnaps(AppleSheetSnap.Peek)
         MapStyleRuntime.apply3dVisuals(map, style, enabled = true)
+        MapStyleRuntime.syncBuilding3dVisibility(
+            map = map,
+            style = style,
+            userWants3d = true,
+            suppressForCameraMotion = false,
+            activeNavigation = true,
+        )
         map.uiSettings.apply {
             isScrollGesturesEnabled = false
             isRotateGesturesEnabled = false
@@ -578,12 +604,15 @@ fun MapLibreMbTilesMap(
         val tripOrigin = directions.tripWaypoints.first()
         val tripStops = directions.tripWaypoints.drop(1)
         DirectionsNavigationFrameResolver.syncNavigationVisuals(
+            context = context,
             style = style,
             route = navGeometry,
             frame = displayFrame,
             origin = tripOrigin,
             stops = tripStops,
             valhallaRoute = route,
+            travelMode = directions.travelMode,
+            isDarkAppearance = effectiveDarkAppearance,
         )
         camera.enter(displayFrame)
         if (!navigationEngine.start()) {
@@ -672,6 +701,11 @@ fun MapLibreMbTilesMap(
         initialStatusRes: Int,
         import: suspend () -> Result<String>,
     ) {
+        if (!OfflineAuthStore.isSessionActive(context)) {
+            authDestination = AuthDestination.SignIn
+            graphImportInProgress = false
+            return
+        }
         coroutineScope.launch {
             graphImportInProgress = true
             graphImportProgressPercent = null
@@ -767,7 +801,26 @@ fun MapLibreMbTilesMap(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(authRevision, isLoggedIn, controller.mapStyleMode) {
+        if (!isLoggedIn) {
+            showOfflineGraphImportAlert = false
+            graphRestoreInProgress = false
+            graphImportStatusMessage = ""
+            graphImportProgressPercent = null
+            if (OfflineGraphEngine.isLoaded()) {
+                withContext(Dispatchers.IO) {
+                    OfflineGraphEngine.unloadFromMemory()
+                }
+                offlineGraphLoaded = false
+            }
+            return@LaunchedEffect
+        }
+        if (!preferOfflineGraph) {
+            graphRestoreInProgress = false
+            graphImportStatusMessage = ""
+            graphImportProgressPercent = null
+            return@LaunchedEffect
+        }
         if (!DirectionsRoutingService.hasSavedGraph(context)) return@LaunchedEffect
         if (OfflineGraphEngine.isLoaded()) {
             offlineGraphLoaded = true
@@ -804,6 +857,7 @@ fun MapLibreMbTilesMap(
     }
 
     MapStyleLoadEffect(context, controller)
+    MapTileserverRecoveryEffect(context, controller, lifecycle)
 
     LaunchedEffect(
         controller.mapLibreMap,
@@ -841,9 +895,8 @@ fun MapLibreMbTilesMap(
         val mapView = mapViewRef.value
         val applyStyle = {
             map.setStyle(Style.Builder().fromJson(json)) { style ->
-                val mode = resolveMapTimeOfDay(isDarkAppearance = isDarkAppearance)
                 runCatching { BuildingExtrusion.prepareStyle(style) }
-                MapStyleRuntime.applyTimeOfDay(style, mode)
+                MapStyleRuntime.applyTimeOfDay(style, timeOfDay)
                 fitBounds?.let { bounds ->
                     runCatching { map.setLatLngBoundsForCameraTarget(bounds) }
                 }
@@ -896,7 +949,9 @@ fun MapLibreMbTilesMap(
         controller.mapRuntime,
         activeRouteResult,
         activeDirections?.tripWaypoints?.map { it.id },
+        activeDirections?.travelMode,
         isNavigationActive,
+        effectiveDarkAppearance,
     ) {
         if (isNavigationActive) return@LaunchedEffect
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
@@ -914,6 +969,8 @@ fun MapLibreMbTilesMap(
                 stops = tripStops,
                 valhallaRoute = route,
                 revealProgress = 1f,
+                travelMode = directions.travelMode,
+                isDarkAppearance = effectiveDarkAppearance,
             )
             controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
         }
@@ -947,12 +1004,14 @@ fun MapLibreMbTilesMap(
         graphImportInProgress,
         graphRestoreInProgress,
         isNavigationActive,
+        controller.mapStyleMode,
     ) {
         if (isNavigationActive) return@LaunchedEffect
         if (graphImportInProgress || graphRestoreInProgress) return@LaunchedEffect
         val runtime = controller.mapRuntime ?: return@LaunchedEffect
         val (map, style) = runtime
         val mv = mapViewRef.value
+        val darkAppearance = effectiveDarkAppearance
         val directions = activeDirections
         if (directions == null) {
             controller.activeRouteGeometry = null
@@ -976,9 +1035,11 @@ fun MapLibreMbTilesMap(
 
         delay(DirectionsRouteAnimation.FETCH_DEBOUNCE_MS)
         isRouteCalculating = true
-        isRouteRefining = DirectionsRoutingService.hasSavedGraph(context) &&
+        isRouteRefining = preferOfflineGraph &&
+            isLoggedIn &&
+            DirectionsRoutingService.hasSavedGraph(context) &&
             !OfflineGraphEngine.isLoaded()
-            
+
         val waypoints = directions.tripWaypoints.map { it.latLng }
         val valhallaRoute = ValhallaRouteClient.fetchRoute(waypoints, directions.travelMode)
         val fullGeometry = valhallaRoute?.geometry?.takeIf { it.size >= 2 }
@@ -999,7 +1060,9 @@ fun MapLibreMbTilesMap(
                 stops = directions.stops,
                 mode = directions.travelMode,
                 tripWaypoints = directions.tripWaypoints,
+                preferOfflineGraph = preferOfflineGraph,
             ) { progress ->
+                if (!preferOfflineGraph) return@planDirectionsRoute
                 coroutineScope.launch(Dispatchers.Main.immediate) {
                     if (!OfflineGraphEngine.isLoaded()) {
                         graphRestoreInProgress = true
@@ -1032,6 +1095,9 @@ fun MapLibreMbTilesMap(
         }
 
         val route = planOutcome.result
+            ?: valhallaRoute
+                ?.takeIf { it.geometry.size >= 2 }
+                ?.withMapDisplayGeometry()
         if (route == null || route.geometry.size < 2) {
             activeRouteResult = null
             activeRouteSource = null
@@ -1056,7 +1122,11 @@ fun MapLibreMbTilesMap(
         }
 
         activeRouteResult = route
-        activeRouteSource = planOutcome.source
+        activeRouteSource = when {
+            planOutcome.result != null -> planOutcome.source
+            valhallaRoute != null -> DirectionsRouteSource.Valhalla
+            else -> planOutcome.source
+        }
         offlineGraphLoaded = OfflineGraphEngine.isLoaded()
 
         val bottomPaddingPx = with(density) { bottomChromePaddingState.value.roundToPx() }
@@ -1071,6 +1141,8 @@ fun MapLibreMbTilesMap(
                 stops = tripStops,
                 valhallaRoute = route,
                 revealProgress = progress,
+                travelMode = directions.travelMode,
+                isDarkAppearance = darkAppearance,
             )
             controller.mapOverlayCameraTick = controller.mapOverlayCameraTick + 1
         }
@@ -1374,6 +1446,7 @@ fun MapLibreMbTilesMap(
                                             style = runtime.second,
                                             userWants3d = true,
                                             suppressForCameraMotion = suppressForCameraMotion,
+                                            activeNavigation = isNavigationActiveRef.value,
                                         )
                                     }
                                     fun publishZoomGrade() {
@@ -1694,11 +1767,12 @@ fun MapLibreMbTilesMap(
                                         )
                                         sheetStack.popAddStopOverlays()
                                         coroutineScope.launch {
-                                            if (DirectionsRoutingService.canRoute(context)) {
-                                                routePlanTick++
-                                            } else {
-                                                onAddStopRequested()
+                                            if (!DirectionsRoutingService.hasSavedGraph(context) &&
+                                                !DirectionsRoutingService.canRoute(context)
+                                            ) {
+                                                requestOfflineGraphImport()
                                             }
+                                            routePlanTick++
                                         }
                                     }
                                 },
@@ -2185,6 +2259,7 @@ fun MapLibreMbTilesMap(
                                 tripLegCount = (sheet.tripWaypoints.size - 1).coerceAtLeast(0),
                                 travelMode = sheet.travelMode,
                                 onTravelModeChange = { mode ->
+                                    if (isNavigationActive) return@AppleMapsDirectionsPanel
                                     sheetStack.updateDirections(
                                         sheet.origin,
                                         sheet.stops,
@@ -2210,10 +2285,11 @@ fun MapLibreMbTilesMap(
                                 routeSource = activeRouteSource,
                                 isRouteCalculating = isRouteCalculating,
                                 isRouteRefining = isRouteRefining,
-                                offlineGraphLoaded = offlineGraphLoaded,
-                                onImportGraphClick = {
-                                    showOfflineGraphImportAlert = true
-                                },
+                                showOfflineRoutingImport =
+                                    isLoggedIn &&
+                                    controller.mapStyleMode != ResolvedMapStyle.Mode.Online &&
+                                    !DirectionsRoutingService.isOfflineRoutingConfigured(context),
+                                onImportGraphClick = { requestOfflineGraphImport() },
                                 onNearbyShortcutClick = { shortcut ->
                                     controller.startNearbyCategoryBrowse(
                                         shortcut,
@@ -2345,12 +2421,15 @@ fun MapLibreMbTilesMap(
         if (showTopRightChrome) {
             AppleMapsTopRightChrome(
                 sheetTheme = sheetTheme,
-                isDarkAppearance = isDarkAppearance,
+                isDarkAppearance = effectiveDarkAppearance,
                 is3d = is3d,
                 mapBearingDegrees = mapBearingDegrees,
                 onChooseMapClick = { showChooseMapSheet = true },
                 onMyLocationClick = { showMyLocationSheet = true },
-                onToggleAppearanceClick = { isDarkAppearance = !isDarkAppearance },
+                onToggleAppearanceClick = {
+                    appearanceManuallyOverridden = true
+                    isDarkAppearance = !effectiveDarkAppearance
+                },
                 onToggle3dClick = { is3d = !is3d },
                 onCompassClick = {
                     controller.mapRuntime?.let { (map, style) ->
@@ -2367,6 +2446,19 @@ fun MapLibreMbTilesMap(
                                     .build(),
                             ),
                         )
+                    }
+                },
+                onCompassBearingDragEnd = {
+                    controller.mapRuntime?.let { (map, style) ->
+                        if (is3d) {
+                            MapStyleRuntime.syncBuilding3dVisibility(
+                                map = map,
+                                style = style,
+                                userWants3d = true,
+                                suppressForCameraMotion = false,
+                                activeNavigation = isNavigationActive,
+                            )
+                        }
                     }
                 },
                 modifier = Modifier
@@ -2424,9 +2516,10 @@ fun MapLibreMbTilesMap(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.TravelExplore,
+                        painter = painterResource(R.drawable.ic_look_around),
                         contentDescription = stringResource(R.string.apple_look_around),
                         tint = sheetTheme.mapControlIcon,
+                        modifier = Modifier.size(26.dp),
                     )
                 }
             }
@@ -2512,36 +2605,12 @@ fun MapLibreMbTilesMap(
             )
         }
 
-        OfflineGraphImportProgressOverlay(
-            visible = graphImportInProgress || graphRestoreInProgress,
-            statusMessage = graphImportStatusMessage.ifBlank {
-                stringResource(
-                    if (graphRestoreInProgress) {
-                        R.string.directions_offline_import_restoring
-                    } else {
-                        R.string.directions_offline_import_in_progress
-                    },
-                )
-            },
-            progressPercent = graphImportProgressPercent,
-        )
-
-        if (showOfflineGraphImportAlert) {
+        if (showOfflineGraphImportAlert && isLoggedIn) {
             OfflineGraphImportAlertDialog(
                 onDismiss = { showOfflineGraphImportAlert = false },
                 onImportFolderClick = {
                     graphImportInProgress = true
                     graphFolderPicker.launch(null)
-                },
-                onImportZipClick = {
-                    graphImportInProgress = true
-                    graphZipPicker.launch(
-                        arrayOf(
-                            "application/zip",
-                            "application/x-zip-compressed",
-                            "*/*",
-                        ),
-                    )
                 },
                 isImporting = graphImportInProgress,
             )
@@ -2693,7 +2762,22 @@ fun MapLibreMbTilesMap(
         OfflineRoutingRequiredModal(
             visible = showOfflineRoutingRequiredAlert,
             onDismiss = { showOfflineRoutingRequiredAlert = false },
+        // Full-screen centered overlay above map, sheets, auth, and dialogs.
+        OfflineGraphImportProgressOverlay(
+            visible = graphImportInProgress || graphRestoreInProgress,
+            statusMessage = graphImportStatusMessage.ifBlank {
+                stringResource(
+                    if (graphRestoreInProgress) {
+                        R.string.directions_offline_import_restoring
+                    } else {
+                        R.string.directions_offline_import_in_progress
+                    },
+                )
+            },
+            progressPercent = graphImportProgressPercent,
         )
+
+        // Last in stack: modal window above map (AndroidView), sheets, auth, and other dialogs.
     }
 }
 

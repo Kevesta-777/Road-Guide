@@ -38,6 +38,7 @@ internal fun AppleMapsCompassControl(
     mapBearingDegrees: Float,
     onClick: () -> Unit,
     onBearingDragDegrees: (Float) -> Unit,
+    onBearingDragEnd: () -> Unit = {},
     modifier: Modifier = Modifier,
     compassContentDescription: String,
 ) {
@@ -45,6 +46,7 @@ internal fun AppleMapsCompassControl(
     val normalizedBearing = ((mapBearingDegrees % 360f) + 360f) % 360f
     val onClickState by rememberUpdatedState(onClick)
     val onBearingState by rememberUpdatedState(onBearingDragDegrees)
+    val onBearingDragEndState by rememberUpdatedState(onBearingDragEnd)
     val bearingState by rememberUpdatedState(mapBearingDegrees)
 
     val dialSurface = sheetTheme.compassDialSurface
@@ -91,7 +93,11 @@ internal fun AppleMapsCompassControl(
                                 change.consume()
                             }
                         } finally {
-                            if (!dragged) onClickState()
+                            if (dragged) {
+                                onBearingDragEndState()
+                            } else {
+                                onClickState()
+                            }
                         }
                     }
                 },

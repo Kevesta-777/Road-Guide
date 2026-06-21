@@ -1,13 +1,26 @@
 package com.example.roadguideapp.map
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.maplibre.android.maps.Style
 
 @Composable
@@ -33,6 +46,7 @@ internal fun MapStyleLoadEffect(
                 onSuccess = { resolved ->
                     controller.resolvedStyleJson = resolved.json
                     controller.mapStyleMode = resolved.mode
+                    MapStyleSession.mode = resolved.mode
                     controller.styleFetchError = null
                     MapDataTierLogger.logStyleMode(resolved.mode)
                 },
@@ -46,6 +60,7 @@ internal fun MapStyleLoadEffect(
                     } else {
                         controller.resolvedStyleJson = null
                         controller.mapStyleMode = ResolvedMapStyle.Mode.Online
+                        MapStyleSession.mode = ResolvedMapStyle.Mode.Online
                         controller.styleFetchError =
                             "Could not load map style.\n${e.message}"
                     }
@@ -53,6 +68,74 @@ internal fun MapStyleLoadEffect(
             )
         }
         controller.styleLoadPassComplete = true
+    }
+}
+
+/**
+ * Re-probes the tileserver when connectivity returns or the app resumes, then reloads the map
+ * style so sprites switch back to live Headway URLs after an offline cached-hybrid session.
+ */
+@Composable
+internal fun MapTileserverRecoveryEffect(
+    context: Context,
+    controller: MapScreenController,
+    lifecycle: Lifecycle,
+) {
+    val appContext = context.applicationContext
+    val tileserverOrigin = MapServerConfig.mapApiBaseUrl
+    val scope = rememberCoroutineScope()
+    val currentStyleMode by rememberUpdatedState(controller.mapStyleMode)
+
+    suspend fun maybeReloadOnlineStyle() {
+        val nowReachable = withContext(Dispatchers.IO) {
+            TileserverReachability.reprobe(tileserverOrigin)
+        }
+        if (nowReachable && currentStyleMode != ResolvedMapStyle.Mode.Online) {
+            controller.styleReloadToken++
+        }
+    }
+
+    DisposableEffect(lifecycle, tileserverOrigin) {
+        val resumeObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch {
+                    maybeReloadOnlineStyle()
+                }
+            }
+        }
+        lifecycle.addObserver(resumeObserver)
+
+        val connectivityManager =
+            appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                scope.launch {
+                    maybeReloadOnlineStyle()
+                }
+            }
+
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    scope.launch {
+                        maybeReloadOnlineStyle()
+                    }
+                }
+            }
+        }
+        connectivityManager?.registerNetworkCallback(
+            NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build(),
+            networkCallback,
+        )
+        scope.launch {
+            maybeReloadOnlineStyle()
+        }
+
+        onDispose {
+            lifecycle.removeObserver(resumeObserver)
+            runCatching { connectivityManager?.unregisterNetworkCallback(networkCallback) }
+        }
     }
 }
 

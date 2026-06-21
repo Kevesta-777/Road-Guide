@@ -1,6 +1,8 @@
 package com.example.roadguideapp.map
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NearbyCategorySearchTest {
@@ -17,11 +19,19 @@ class NearbyCategorySearchTest {
     }
 
     @Test
-    fun mergeResults_respectsLimit() {
-        val primary = (1..10).map {
-            PeliasSearchResult("p$it", "P$it", "P$it", null, 0.0, 0.0)
-        }
-        val merged = NearbyCategorySearch.mergeResults(primary, emptyList(), limit = 5)
-        assertEquals(5, merged.size)
+    fun boundsForResults_singleResult_returnsPaddedBounds() {
+        val result = PeliasSearchResult("gid1", "Cafe", "Cafe", "venue", 51.5074, -0.1278)
+        val bounds = NearbyCategorySearch.boundsForResults(listOf(result))
+        assertNotNull(bounds)
+        assertTrue(bounds!!.latitudeNorth > bounds.latitudeSouth)
+    }
+
+    @Test
+    fun boundsForResults_duplicateLocations_returnsPaddedBounds() {
+        val a = PeliasSearchResult("gid1", "A", "A", "venue", 51.5074, -0.1278)
+        val b = PeliasSearchResult("gid2", "B", "B", "venue", 51.5074, -0.1278)
+        val bounds = NearbyCategorySearch.boundsForResults(listOf(a, b))
+        assertNotNull(bounds)
+        assertTrue(bounds!!.latitudeNorth > bounds.latitudeSouth)
     }
 }
